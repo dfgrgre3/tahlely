@@ -1,0 +1,32 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@tahlely/domain": ["./packages/domain/src/index.ts"],
+      "@tahlely/application": ["./packages/application/src/index.ts"],
+      "@tahlely/infrastructure": ["./packages/infrastructure/src/index.ts"],
+      "@tahlely/infrastructure/node": ["./packages/infrastructure/src/node-fs.ts"],
+      "@tahlely/analysis": ["./packages/analysis/src/index.ts"],
+      "@tahlely/ai": ["./packages/ai/src/index.ts"],
+      "@tahlely/agents": ["./packages/agents/src/index.ts"],
+      "@tahlely/security": ["./packages/security/src/index.ts"],
+      "@tahlely/execution": ["./packages/execution/src/index.ts"],
+      "@tahlely/execution/node": ["./packages/execution/src/executor.ts"],
+      "@tahlely/reporting": ["./packages/reporting/src/index.ts"],
+      "@tahlely/persistence": ["./packages/persistence/src/index.ts"],
+      "@tahlely/persistence/memory": ["./packages/persistence/src/memory-repositories.ts"],
+      "@tahlely/persistence/node": ["./packages/persistence/src/factory.ts"]
+    },
+    "types": ["node"]
+  },
+  "include": [
+    "apps/desktop/src/**/*",
+    "packages/*/src/**/*",
+    "packages/*/tests/**/*",
+    "tests/**/*",
+    "vitest.config.ts"
+  ],
+  "exclude": ["**/node_modules", "**/dist", "apps/desktop/src-tauri"]
+}
