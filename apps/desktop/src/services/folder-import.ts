@@ -15,7 +15,6 @@ const SKIP_EXTENSIONS = new Set([
   'jpeg',
   'gif',
   'ico',
-  'svg',
   'woff',
   'woff2',
   'ttf',
@@ -29,7 +28,6 @@ const SKIP_EXTENSIONS = new Set([
   'pdf',
   'mp4',
   'mp3',
-  'lock',
 ]);
 
 /** Browser-safe upload filter: skip binaries and oversized files. */
@@ -37,6 +35,18 @@ export function shouldSkipUpload(fileName: string, size: number): boolean {
   if (size > 1024 * 1024) return true;
   const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
   return SKIP_EXTENSIONS.has(ext);
+}
+
+export function normalizeUploadedFile(file: File & { webkitRelativePath?: string }): {
+  rootName: string;
+  relativePath: string;
+} {
+  const raw = (file.webkitRelativePath || file.name).replace(/\\/g, '/');
+  const parts = raw.split('/').filter(Boolean);
+  const rootName = parts.length > 1 ? (parts[0] ?? 'project') : 'project';
+  const relativePath = parts.length > 1 ? parts.slice(1).join('/') : file.name;
+
+  return { rootName, relativePath };
 }
 
 function slugify(name: string): string {

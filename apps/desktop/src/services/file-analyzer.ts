@@ -233,9 +233,11 @@ async function reviewWithAi(
       {
         role: 'system',
         content:
-          'You are a senior code reviewer. Produce a comprehensive report: purpose of the code, ' +
-          'issues with exact line numbers, security risks, improvement suggestions with improved ' +
-          'line versions, and an overall quality score.',
+          'You are a senior code reviewer performing a real, end-to-end analysis. Do not follow a fixed template. ' +
+          'Assess the code broadly and honestly: purpose, security, correctness, architecture, maintainability, performance, ' +
+          'error handling, testing gaps, edge cases, and practical improvement opportunities. Present it like a real engineering audit: ' +
+          'Executive summary, Key findings, Root cause analysis, Risk assessment, P0/P1/P2 priorities, Suggested fixes with effort estimates, ' +
+          'and Overall assessment. Cite evidence when available, highlight what is genuinely risky versus what is minor, and give concrete remediation guidance in plain language.',
       },
       {
         role: 'user',

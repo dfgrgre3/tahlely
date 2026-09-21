@@ -20,6 +20,7 @@ export class OpenAiCompatibleProvider implements AIProvider {
   readonly kind = 'openai-compatible' as const;
   private readonly baseUrl: string;
   private readonly apiKey?: string;
+  private readonly extraHeaders: Record<string, string>;
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
 
@@ -31,6 +32,7 @@ export class OpenAiCompatibleProvider implements AIProvider {
     this.providerId = provider.id;
     this.baseUrl = (provider.baseUrl ?? 'https://api.openai.com/v1').replace(/\/+$/, '');
     this.apiKey = secrets.apiKey;
+    this.extraHeaders = provider.extraHeaders ?? {};
     this.timeoutMs = options?.timeoutMs ?? 60000;
     this.fetchImpl = options?.fetchImpl ?? fetch;
   }
@@ -130,6 +132,7 @@ export class OpenAiCompatibleProvider implements AIProvider {
         method: init.method,
         headers: {
           'content-type': 'application/json',
+          ...this.extraHeaders,
           ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}),
         },
         body: init.body === undefined ? undefined : JSON.stringify(init.body),

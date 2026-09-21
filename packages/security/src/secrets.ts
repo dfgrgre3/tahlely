@@ -6,6 +6,9 @@
 const SECRET_PATTERNS: { name: string; pattern: RegExp }[] = [
   { name: 'openai-key', pattern: /\bsk-[A-Za-z0-9_-]{8,}\b/g },
   { name: 'anthropic-key', pattern: /\bsk-ant-[A-Za-z0-9_-]{8,}\b/g },
+  { name: 'openrouter-key', pattern: /\bsk-or-v1-[A-Za-z0-9]{8,}\b/g },
+  { name: 'atria-key', pattern: /\batr_[A-Za-z0-9]{8,}\b/g },
+  { name: 'nvidia-key', pattern: /\bnvapi-[A-Za-z0-9_.-]{8,}\b/g },
   { name: 'github-token', pattern: /\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{8,}\b/g },
   { name: 'aws-key', pattern: /\bAKIA[0-9A-Z]{16}\b/g },
   { name: 'generic-bearer', pattern: /\b[bB]earer\s+[A-Za-z0-9\-._~+/=]{8,}/g },

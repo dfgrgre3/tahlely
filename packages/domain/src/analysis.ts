@@ -12,6 +12,7 @@ export const ANALYSIS_PROFILES = [
   'production',
   'security',
   'architecture',
+  'comprehensive',
   'custom',
 ] as const;
 export type AnalysisProfileId = (typeof ANALYSIS_PROFILES)[number];
@@ -35,6 +36,9 @@ export const ANALYZER_KINDS = [
   'architecture',
   'config',
   'api-contract',
+  'go',
+  'scripts',
+  'proto',
 ] as const;
 export type AnalyzerKind = (typeof ANALYZER_KINDS)[number];
 

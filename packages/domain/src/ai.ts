@@ -26,6 +26,8 @@ export interface Provider extends Timestamps {
   kind: ProviderKind;
   /** Base URL for OpenAI-compatible/custom endpoints. Secrets stay in config. */
   baseUrl?: string;
+  /** Extra HTTP headers (e.g. OpenRouter HTTP-Referer / X-Title). No secrets here. */
+  extraHeaders?: Record<string, string>;
   enabled: boolean;
 }
 

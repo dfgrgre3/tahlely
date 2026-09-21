@@ -8,4 +8,5 @@ export * from './provider.js';
 export * from './mock-provider.js';
 export * from './openai-compatible.js';
 export * from './registry.js';
+export * from './presets.js';
 export * from './context-builder.js';

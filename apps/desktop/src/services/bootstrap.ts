@@ -23,8 +23,14 @@ import {
 } from '@tahlely/application';
 import {
   AnalysisEngine,
+  ApiContractAnalyzer,
+  ArchitectureAnalyzer,
   CompilerAnalyzer,
   ComplexityAnalyzer,
+  ConfigAnalyzer,
+  GoAnalyzer,
+  ProtoAnalyzer,
+  ScriptsAnalyzer,
   DeadCodeAnalyzer,
   DeepCorrectnessAnalyzer,
   DependencyAnalyzer,
@@ -41,7 +47,7 @@ import {
   getProfile,
 } from '@tahlely/analysis';
 import type { AnalyzerFile } from '@tahlely/analysis';
-import { MockProvider, ProviderRegistry } from '@tahlely/ai';
+import { MockProvider, PROVIDER_PRESETS, ProviderRegistry, presetToProvider } from '@tahlely/ai';
 import { AgentService, builtinAgentGoals, builtinAgents } from '@tahlely/agents';
 import {
   Logger,
@@ -59,7 +65,7 @@ import {
   MemoryFileIndexRepository,
   MemoryReportRepository,
 } from '@tahlely/persistence/memory';
-import { buildReport, render, sortFindings } from '@tahlely/reporting';
+import { buildReport, render, renderFileCoverageMarkdown, renderFolderCoverageMarkdown, buildFolderFileCoverage, sortFindings } from '@tahlely/reporting';
 import type {
   Agent,
   AgentRole,
@@ -112,6 +118,12 @@ function createServices(): Services {
   const analyses = new MemoryAnalysisRepository();
   const engine = new AnalysisEngine(bus, [
     new CompilerAnalyzer(),
+    new ArchitectureAnalyzer(),
+    new ConfigAnalyzer(),
+    new ApiContractAnalyzer(),
+    new GoAnalyzer(),
+    new ScriptsAnalyzer(),
+    new ProtoAnalyzer(),
     new DeepCorrectnessAnalyzer(),
     new StrictQualityAnalyzer(),
     new SecurityHeuristicsAnalyzer(),
@@ -407,17 +419,14 @@ export async function askAssistant(conversationId: string, text: string): Promis
     body: text,
   });
   const history = await services.conversations.listMessages(conversationId);
-  const provider = services.registry.getOrCreate({
-    id: 'mock' as ProviderId,
-    name: 'Mock (offline)',
-    kind: 'local',
-    enabled: true,
-    createdAt: utcNow(),
-    updatedAt: utcNow(),
+  const modelRef = activeModelRef();
+  const resolvedProvider = providerForModel(modelRef);
+  const provider = services.registry.getOrCreate(resolvedProvider, {
+    apiKey: sessionKeyFor(resolvedProvider.id),
   });
   try {
     const response = await provider.chat({
-      model: 'mock/mock-reviewer',
+      model: modelRef,
       messages: history.slice(-20).map((message) => ({
         role: message.role === 'assistant' ? 'assistant' : 'user',
         content: message.body,
@@ -476,16 +485,58 @@ export async function requestFileDeletion(
 
 /**
  * Enforcement bridge: approved DELETE_FILE requests actually remove the file
- * from the project filesystem and index, with an audit trail. Rejections are
+ * from the project filesystem and index, with an audit trail. Approved
+ * WRITE_FILE requests flush their staged content. Rejections are
  * no-ops by design — deny is always safe.
  */
+const pendingWrites = new Map<string, { projectId: ProjectId; path: string; content: string }>();
+
+/** Stage a file edit behind a WRITE_FILE permission request. Nothing is written until approved. */
+export async function requestFileWrite(
+  projectId: ProjectId,
+  path: string,
+  content: string,
+  reason: string,
+): Promise<string> {
+  const fs = new MemoryFileSystem();
+  const request = await requestPermission(ctxWith(fs), {
+    projectId,
+    permission: 'WRITE_FILE',
+    action: `Edit file ${path}`,
+    target: path,
+    reason,
+  });
+  pendingWrites.set(request.id, { projectId, path, content });
+  return request.id;
+}
 services.bus.on('PermissionApproved', (event) => {
-  void (async () => {
+  (async () => {
     const request = await services.policies.getRequest(event.payload.requestId);
-    if (!request || request.permission !== 'DELETE_FILE' || !request.target) return;
+    if (!request || !request.target) return;
     const project = await services.projects.getProject(request.projectId);
     if (!project) return;
     const fs = fsFor(project);
+    if (request.permission === 'WRITE_FILE') {
+      const staged = pendingWrites.get(request.id);
+      if (!staged) return;
+      const absolute = request.target.startsWith('/')
+        ? request.target
+        : `${project.rootPath}/${request.target}`;
+      await fs.writeTextFile(staged.path.startsWith('/') ? staged.path : absolute, staged.content);
+      pendingWrites.delete(request.id);
+      await services.audit.append({
+        id: newId('audit'),
+        projectId: project.id,
+        category: 'security',
+        action: 'file.edited',
+        actor: 'user',
+        target: request.target,
+        metadata: { requestId: request.id, note: request.decisionNote },
+        at: utcNow(),
+      });
+      return;
+    }
+    if (request.permission !== 'DELETE_FILE') return;
     const absolute = request.target.startsWith('/')
       ? request.target
       : `${project.rootPath}/${request.target}`;
@@ -506,6 +557,10 @@ services.bus.on('PermissionApproved', (event) => {
   });
 });
 
+services.bus.on('PermissionRejected', (event) => {
+  pendingWrites.delete(event.payload.requestId);
+});
+
 function sanitizePathPart(value: string): string {
   return (
     value
@@ -522,7 +577,7 @@ function sanitizePathPart(value: string): string {
  * same reports are downloadable from the File Analyzer sidebar instead.
  */
 services.bus.on('ReportGenerated', (event) => {
-  void (async () => {
+  (async () => {
     if (!isTauri()) return;
     const [report, project] = await Promise.all([
       services.reports.getReport(event.payload.reportId),
@@ -575,7 +630,31 @@ export interface AgentRunOptions {
   signal?: AbortSignal;
 }
 
-/** Resolve a model ref to its provider (custom API providers included). */
+/** Session-only API key lookup (mirrors services/providers.ts — never localStorage). */
+export function sessionKeyFor(providerId: string): string | undefined {
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      return sessionStorage.getItem(`tahlely.v1.provider-keys.${providerId}`) ?? undefined;
+    }
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
+/** Active model ref chosen in Models view (localStorage — the ref only, never the key). */
+export function activeModelRef(): string {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem('tahlely.v1.active-model') ?? 'mock/mock-reviewer';
+    }
+  } catch {
+    // ignore
+  }
+  return 'mock/mock-reviewer';
+}
+
+/** Resolve a model ref to its provider (presets + custom API providers included). */
 export function providerForModel(ref?: string): Provider {
   const fallback: Provider = {
     id: 'mock' as ProviderId,
@@ -588,6 +667,13 @@ export function providerForModel(ref?: string): Provider {
   if (!ref) return fallback;
   const [providerId] = ref.split('/');
   if (!providerId || providerId === 'mock') return fallback;
+  const preset = PROVIDER_PRESETS.find((p) => p.id === providerId);
+  if (preset) {
+    return {
+      ...(presetToProvider(preset, utcNow()) as Provider),
+      id: preset.id as ProviderId,
+    };
+  }
   const custom = readProviderRecords().find((record) => record.id === providerId);
   if (!custom) return fallback;
   return {
@@ -618,7 +704,8 @@ export async function runAgentNow(
     throw new AppError('Project not found.', { kind: 'not-found', code: 'PROJECT_MISSING' });
   }
   const fs = fsFor(project);
-  const provider = services.registry.getOrCreate(providerForModel(options.model), {});
+  const resolved = providerForModel(options.model);
+  const provider = services.registry.getOrCreate(resolved, { apiKey: sessionKeyFor(resolved.id) });
   const service = new AgentService(services.bus, provider, services.agents, {
     execute: async (tool, args) => {
       if (tool === 'read_file' && typeof args['path'] === 'string') {
@@ -800,6 +887,12 @@ export async function buildToolProjectReport(
     .map((file) => file.relativePath)
     .filter((relativePath) => !byFile.has(relativePath));
 
+  // Real per-folder + per-file coverage over EVERY indexed file (no sampling).
+  const coverage = buildFolderFileCoverage(
+    files.map((file) => ({ relativePath: file.relativePath, binary: file.binary, generated: file.generated })),
+    ranked,
+  );
+
   const overview = [
     `Project: ${project.name} (${project.kind}) · root ${project.rootPath}`,
     `Analysis: profile ${run?.profileId ?? 'n/a'} · mode ${run?.mode ?? 'n/a'} · findings ${ranked.length}`,
@@ -851,6 +944,18 @@ export async function buildToolProjectReport(
     title: 'Files with no findings',
     body: cleanFiles.length > 0 ? cleanFiles.map((path) => `- ${path}`).join('\n') : 'None.',
     findingIds: [],
+  });
+  report.sections.push({
+    id: 'folder-coverage',
+    title: `Per-folder coverage (${coverage.folders.length} folders, every folder listed)`,
+    body: renderFolderCoverageMarkdown(coverage.folders),
+    findingIds: ranked.map((finding) => finding.id),
+  });
+  report.sections.push({
+    id: 'file-coverage',
+    title: `Per-file coverage (${coverage.files.length} files, every file listed)`,
+    body: renderFileCoverageMarkdown(coverage.files),
+    findingIds: ranked.map((finding) => finding.id),
   });
 
   await services.reports.saveReport(report);
@@ -939,19 +1044,24 @@ export async function buildAiProjectReport(
     ...excerpts,
   ].join('\n');
 
-  const provider = services.registry.getOrCreate(providerForModel(options.model), {});
+  const reportModel = options.model ?? activeModelRef();
+  const reportProvider = providerForModel(reportModel);
+  const provider = services.registry.getOrCreate(reportProvider, {
+    apiKey: sessionKeyFor(reportProvider.id),
+  });
   const response = await provider.chat({
-    model: options.model ?? 'mock/mock-reviewer',
+    model: reportModel,
     messages: [
       {
         role: 'system',
         content:
-          'You are a principal engineer writing the comprehensive report for a project audit. ' +
-          'Write in Markdown with these sections: 1) Executive summary, 2) Critical/must-fix issues ' +
-          '(each with file:line and the concrete fix), 3) Security assessment, 4) Correctness risks, ' +
-          '5) Architecture & maintainability, 6) Prioritized action plan (P0/P1/P2) with effort, ' +
-          '7) Overall quality score (0-100) with justification. Be strict, specific, and avoid ' +
-          'generic advice; ground every claim in the provided findings and excerpts.',
+          'You are a senior engineering reviewer doing a real project audit. Do not force the answer into a rigid template. ' +
+          'Write a comprehensive, evidence-based assessment that covers security, correctness, architecture, maintainability, ' +
+          'performance, reliability, testing gaps, operational risk, and any other material issue supported by the findings and code excerpts. ' +
+          'Structure it as a real engineering review with these sections in order: Executive summary, Key findings, Root cause analysis, ' +
+          'Risk assessment, P0/P1/P2 priorities, Suggested fixes with effort estimates, and Overall assessment. ' +
+          'Be specific and honest about confidence, cite file:line when possible, explain trade-offs, and give concrete fixes. ' +
+          'If the code is healthy in some areas, say so plainly; if it is weak in others, explain why. Favor depth, clarity, and realism over template wording.',
       },
       { role: 'user', content: prompt },
     ],

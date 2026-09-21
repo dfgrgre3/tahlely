@@ -217,3 +217,114 @@ export function render(report: Report): string {
       return renderSarif(report);
   }
 }
+
+export interface CoverageFileEntry {
+  relativePath: string;
+  folder: string;
+  binary: boolean;
+  generated: boolean;
+  findings: Finding[];
+  bySeverity: Record<string, number>;
+}
+
+export interface CoverageFolderEntry {
+  folder: string;
+  files: number;
+  analyzedFiles: number;
+  findings: number;
+  bySeverity: Record<string, number>;
+  worstFiles: { relativePath: string; findings: number }[];
+}
+
+function folderOf(relativePath: string): string {
+  const parts = relativePath.split('/');
+  parts.pop();
+  return parts.join('/') || '(root)';
+}
+
+/**
+ * Real per-folder + per-file coverage: every indexed file appears exactly
+ * once (clean or with its exact findings), and every folder aggregates its
+ * files with severity breakdown and worst files. Nothing is sampled.
+ */
+export function buildFolderFileCoverage(
+  indexed: { relativePath: string; binary: boolean; generated: boolean }[],
+  findings: Finding[],
+): { folders: CoverageFolderEntry[]; files: CoverageFileEntry[] } {
+  const byPath = new Map<string, Finding[]>();
+  for (const finding of findings) {
+    if (!finding.path || finding.path === '(project)' || finding.path === '(project-wide)') continue;
+    const key = finding.path.replace(/^\/+/, '');
+    const bucket = byPath.get(key) ?? [];
+    bucket.push(finding);
+    byPath.set(key, bucket);
+  }
+  const files: CoverageFileEntry[] = indexed.map((node) => {
+    const list = sortFindings(byPath.get(node.relativePath) ?? []);
+    const bySeverity: Record<string, number> = {};
+    for (const f of list) bySeverity[f.severity] = (bySeverity[f.severity] ?? 0) + 1;
+    return {
+      relativePath: node.relativePath,
+      folder: folderOf(node.relativePath),
+      binary: node.binary,
+      generated: node.generated,
+      findings: list,
+      bySeverity,
+    };
+  });
+  files.sort((a, b) => b.findings.length - a.findings.length || a.relativePath.localeCompare(b.relativePath));
+
+  const folderMap = new Map<string, CoverageFolderEntry>();
+  for (const entry of files) {
+    let folder = folderMap.get(entry.folder);
+    if (!folder) {
+      folder = { folder: entry.folder, files: 0, analyzedFiles: 0, findings: 0, bySeverity: {}, worstFiles: [] };
+      folderMap.set(entry.folder, folder);
+    }
+    folder.files += 1;
+    if (!entry.binary && !entry.generated) folder.analyzedFiles += 1;
+    folder.findings += entry.findings.length;
+    for (const [severity, count] of Object.entries(entry.bySeverity)) {
+      folder.bySeverity[severity] = (folder.bySeverity[severity] ?? 0) + count;
+    }
+  }
+  for (const folder of folderMap.values()) {
+    folder.worstFiles = files
+      .filter((f) => f.folder === folder.folder && f.findings.length > 0)
+      .slice(0, 5)
+      .map((f) => ({ relativePath: f.relativePath, findings: f.findings.length }));
+  }
+  const folders = [...folderMap.values()].sort(
+    (a, b) => b.findings - a.findings || a.folder.localeCompare(b.folder),
+  );
+  return { folders, files };
+}
+
+export function renderFolderCoverageMarkdown(folders: CoverageFolderEntry[]): string {
+  if (folders.length === 0) return 'No folders indexed.';
+  return [
+    '| Folder | Files | Analyzed | Findings | Critical | High | Medium | Low | Info | Worst file |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |',
+    ...folders.map((f) => {
+      const worst = f.worstFiles[0] ? `${f.worstFiles[0].relativePath} (${f.worstFiles[0].findings})` : '—';
+      return `| \`${f.folder}\` | ${f.files} | ${f.analyzedFiles} | ${f.findings} | ${f.bySeverity['critical'] ?? 0} | ${f.bySeverity['high'] ?? 0} | ${f.bySeverity['medium'] ?? 0} | ${f.bySeverity['low'] ?? 0} | ${f.bySeverity['info'] ?? 0} | ${worst} |`;
+    }),
+  ].join('\n');
+}
+
+export function renderFileCoverageMarkdown(files: CoverageFileEntry[]): string {
+  if (files.length === 0) return 'No files indexed.';
+  return files
+    .map((f) => {
+      const header = `### ${f.binary ? '🧩' : f.findings.length > 0 ? '🔴' : '🟢'} ${f.relativePath} — ${f.findings.length} issue(s)`;
+      if (f.binary) return `${header}\n\nBinary file — described, never decoded.`;
+      if (f.generated) return `${header}\n\nGenerated file — excluded from quality scoring.`;
+      if (f.findings.length === 0) return `${header}\n\nClean — no findings by any analyzer.`;
+      const rows = f.findings.map(
+        (finding) =>
+          `- **${finding.severity}** · line ${finding.line ?? '–'}${finding.column ? `:${finding.column}` : ''} · \`${finding.ruleId}\` — ${finding.title}\n  - Fix: ${finding.recommendation ?? 'review manually'}`,
+      );
+      return `${header}\n\n${rows.join('\n')}`;
+    })
+    .join('\n\n');
+}

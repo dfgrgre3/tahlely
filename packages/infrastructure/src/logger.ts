@@ -82,15 +82,33 @@ export class Logger {
 function redactRecord(context: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(context)) {
-    if (/secret|password|token|api[_-]?key|authorization/i.test(key)) {
-      out[key] = '[REDACTED]';
-    } else if (typeof value === 'string') {
-      out[key] = redactSecrets(value);
-    } else {
-      out[key] = value;
-    }
+    out[key] = redactValue(value, key);
   }
   return out;
+}
+
+function redactValue(value: unknown, key?: string): unknown {
+  if (key && /secret|password|token|api[_-]?key|authorization/i.test(key)) {
+    return '[REDACTED]';
+  }
+
+  if (typeof value === 'string') {
+    return redactSecrets(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactValue(entry));
+  }
+
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [childKey, childValue] of Object.entries(value as Record<string, unknown>)) {
+      out[childKey] = redactValue(childValue, childKey);
+    }
+    return out;
+  }
+
+  return value;
 }
 
 export function consoleSink(): LogSink {

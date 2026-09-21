@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildFolderFileCoverage,
   buildReport,
   render,
   renderCsv,
+  renderFileCoverageMarkdown,
+  renderFolderCoverageMarkdown,
   renderHtml,
   renderMarkdown,
   renderSarif,
@@ -68,5 +71,28 @@ describe('reporting', () => {
     expect(sarif.version).toBe('2.1.0');
     expect(sarif.runs[0].results).toHaveLength(2);
     expect(sarif.runs[0].results[0].level).toBe('error');
+  });
+
+  it('covers every folder and every file exactly once', () => {
+    const indexed = [
+      { relativePath: 'src/a.ts', binary: false, generated: false },
+      { relativePath: 'src/b.ts', binary: false, generated: false },
+      { relativePath: 'docs/guide.md', binary: false, generated: false },
+    ];
+    const { folders, files } = buildFolderFileCoverage(indexed, [
+      finding({ path: 'src/a.ts', severity: 'high' }),
+      finding({ path: 'src/a.ts', severity: 'low' }),
+    ]);
+    expect(files).toHaveLength(3);
+    expect(folders).toHaveLength(2);
+    const src = folders.find((f) => f.folder === 'src');
+    expect(src?.files).toBe(2);
+    expect(src?.findings).toBe(2);
+    expect(src?.bySeverity['high']).toBe(1);
+    expect(renderFolderCoverageMarkdown(folders)).toContain('`src`');
+    const md = renderFileCoverageMarkdown(files);
+    expect(md).toContain('src/a.ts — 2 issue(s)');
+    expect(md).toContain('src/b.ts — 0 issue(s)');
+    expect(md).toContain('Clean — no findings');
   });
 });

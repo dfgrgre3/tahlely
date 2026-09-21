@@ -9,7 +9,9 @@ import {
   CodeBlock,
   EmptyState,
   Input,
+  PageHeader,
   Panel,
+  SearchInput,
   Select,
 } from '../components/design-system.js';
 
@@ -54,8 +56,8 @@ export function FileAnalyzer() {
   const [source, setSource] = useState<'paste' | 'upload' | 'url'>('paste');
   const [selectedId, setSelectedId] = useState<string>();
   const [localError, setLocalError] = useState<string>();
+  const [reportQuery, setReportQuery] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
-
   const conversationReports = useMemo(
     () =>
       reports.filter(
@@ -63,9 +65,14 @@ export function FileAnalyzer() {
       ),
     [reports, activeConversationId],
   );
+  const filteredReports = useMemo(() => {
+    const q = reportQuery.trim().toLowerCase();
+    if (!q) return conversationReports;
+    return conversationReports.filter((r) => `${r.title} ${r.generatedBy}`.toLowerCase().includes(q));
+  }, [conversationReports, reportQuery]);
   const selected: Report | undefined =
-    conversationReports.find((report) => report.id === selectedId) ??
-    conversationReports[conversationReports.length - 1];
+    filteredReports.find((report) => report.id === selectedId) ??
+    filteredReports[filteredReports.length - 1];
 
   const onUpload = (files: FileList | null) => {
     const file = files?.[0];
@@ -112,15 +119,17 @@ export function FileAnalyzer() {
 
   return (
     <div>
-      <div className="topbar">
-        <h1>File Analyzer</h1>
-        <div className="spacer" />
-        <Select
-          value={activeConversationId ?? ''}
-          onChange={(id) => void selectConversation(id)}
-          options={conversations.map((c) => ({ value: c.id, label: c.title }))}
-        />
-      </div>
+      <PageHeader
+        title="File Analyzer"
+        subtitle="Paste, upload, or fetch a file — tool, AI, or both — saved per conversation"
+        actions={
+          <Select
+            value={activeConversationId ?? ''}
+            onChange={(id) => void selectConversation(id)}
+            options={conversations.map((c) => ({ value: c.id, label: c.title }))}
+          />
+        }
+      />
       {!activeProjectId ? (
         <Panel title="File Analyzer">
           <EmptyState
@@ -195,7 +204,7 @@ export function FileAnalyzer() {
             </Panel>
           </div>
           <Panel
-            title={`Conversation reports (${conversationReports.length})`}
+            title={`Conversation reports (${filteredReports.length}/${conversationReports.length})`}
             actions={
               conversationReports.length > 0 ? (
                 <Button variant="secondary" onClick={downloadAll}>
@@ -204,11 +213,12 @@ export function FileAnalyzer() {
               ) : undefined
             }
           >
-            {conversationReports.length === 0 ? (
+            <SearchInput value={reportQuery} onChange={setReportQuery} placeholder="Filter reports…" />
+            {filteredReports.length === 0 ? (
               <EmptyState title="Empty" hint="Reports for this conversation are listed here." />
             ) : (
               <div className="file-list">
-                {conversationReports.map((report) => (
+                {filteredReports.map((report) => (
                   <div key={report.id} className="file-item-row">
                     <button
                       className={`file-item${report.id === selected?.id ? ' active' : ''}`}

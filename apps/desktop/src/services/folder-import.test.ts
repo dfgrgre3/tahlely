@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { importUploadedFolder, shouldSkipUpload } from './folder-import.js';
+import {
+  importUploadedFolder,
+  normalizeUploadedFile,
+  shouldSkipUpload,
+} from './folder-import.js';
 import { listProjectFiles, readProjectFile, services } from './bootstrap.js';
 
 describe('shouldSkipUpload', () => {
@@ -7,6 +11,21 @@ describe('shouldSkipUpload', () => {
     expect(shouldSkipUpload('logo.png', 100)).toBe(true);
     expect(shouldSkipUpload('big.ts', 2 * 1024 * 1024)).toBe(true);
     expect(shouldSkipUpload('index.ts', 500)).toBe(false);
+  });
+});
+
+describe('normalizeUploadedFile', () => {
+  it('normalizes nested browser directory uploads', () => {
+    const file = new File(['export const main = 1;'], 'index.ts', { type: 'text/plain' });
+    Object.defineProperty(file, 'webkitRelativePath', {
+      value: 'demo-app/src/index.ts',
+      configurable: true,
+    });
+
+    expect(normalizeUploadedFile(file as File & { webkitRelativePath?: string })).toEqual({
+      rootName: 'demo-app',
+      relativePath: 'src/index.ts',
+    });
   });
 });
 

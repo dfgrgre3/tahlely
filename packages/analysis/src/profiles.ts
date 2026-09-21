@@ -1,4 +1,7 @@
 import type { AnalysisMode, AnalysisProfile, AnalyzerKind } from '@tahlely/domain';
+import { ANALYZER_KINDS } from '@tahlely/domain';
+
+const ALL_ANALYZER_KINDS: AnalyzerKind[] = [...ANALYZER_KINDS];
 
 /**
  * Extensible analysis profiles. Each profile declares analyzers, depth,
@@ -158,10 +161,25 @@ export const ANALYSIS_PROFILES: Record<string, AnalysisProfile> = {
     runExecution: false,
     ignoredPaths: [],
   },
+  comprehensive: {
+    id: 'comprehensive',
+    label: 'Comprehensive Analysis (everything, no fixed pattern)',
+    description:
+      'Runs every registered analyzer over every discovered file (all languages, config, docs, scripts). No extension allowlist, no pattern filter — unknown/empty analyzer lists resolve to all analyzers.',
+    analyzers: [...ANALYZER_KINDS],
+    mode: 'tool-only',
+    timeoutMs: 1800000,
+    maxFiles: 500000,
+    useAi: false,
+    runExecution: false,
+    ignoredPaths: [],
+  },
 };
 
 export function getProfile(id: string): AnalysisProfile {
-  return ANALYSIS_PROFILES[id] ?? customProfile(id, []);
+  const found = ANALYSIS_PROFILES[id];
+  if (found) return found;
+  return customProfile(id, [...ALL_ANALYZER_KINDS]);
 }
 
 export function customProfile(
@@ -186,7 +204,7 @@ export function customProfile(
 
 /** Profiles in UI display order. */
 export function listProfiles(): AnalysisProfile[] {
-  return ['strict', 'quick', 'standard', 'deep', 'production', 'security', 'architecture'].map(
+  return ['comprehensive', 'strict', 'quick', 'standard', 'deep', 'production', 'security', 'architecture'].map(
     (id) => ANALYSIS_PROFILES[id] as AnalysisProfile,
   );
 }

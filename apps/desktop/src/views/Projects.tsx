@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/app-store.js';
 import { isTauri } from '../services/tauri-bridge.js';
 import type { UploadedFile } from '../services/folder-import.js';
-import { shouldSkipUpload } from '../services/folder-import.js';
-import { Badge, Button, EmptyState, Input, Panel } from '../components/design-system.js';
+import { normalizeUploadedFile, shouldSkipUpload } from '../services/folder-import.js';
+import { Badge, Button, EmptyState, Input, PageHeader, Panel, SearchInput } from '../components/design-system.js';
 
 export function Projects() {
   const navigate = useNavigate();
@@ -18,21 +18,23 @@ export function Projects() {
   const selectProject = useAppStore((state) => state.selectProject);
   const [path, setPath] = useState('');
   const [name, setName] = useState('');
+  const [query, setQuery] = useState('');
   const folderInput = useRef<HTMLInputElement>(null);
   const inTauri = isTauri();
+  const visible = query.trim()
+    ? projects.filter((p) => `${p.name} ${p.rootPath} ${p.kind}`.toLowerCase().includes(query.trim().toLowerCase()))
+    : projects;
 
   const onUploadFolder = async (list: FileList | null) => {
     if (!list || list.length === 0) return;
     const files: UploadedFile[] = [];
     let rootName = '';
     for (const file of Array.from(list)) {
-      const raw = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
-      const parts = raw.split('/');
-      rootName = rootName || parts[0] || 'project';
-      const relativePath = parts.slice(1).join('/') || file.name;
+      const uploaded = normalizeUploadedFile(file as File & { webkitRelativePath?: string });
+      rootName = rootName || uploaded.rootName || 'project';
       if (shouldSkipUpload(file.name, file.size)) continue;
       try {
-        files.push({ relativePath, content: await file.text() });
+        files.push({ relativePath: uploaded.relativePath, content: await file.text() });
       } catch {
         // Unreadable entry — skipped, import continues with the rest.
       }
@@ -49,13 +51,15 @@ export function Projects() {
 
   return (
     <div>
-      <div className="topbar">
-        <h1>Projects</h1>
-        <div className="spacer" />
-        <Button variant="secondary" disabled={busy} onClick={() => void openDemo()}>
-          Load demo project
-        </Button>
-      </div>
+      <PageHeader
+        title="Projects"
+        subtitle="Open folders, upload in the browser, or explore the demo pipeline"
+        actions={
+          <Button variant="secondary" disabled={busy} onClick={() => void openDemo()}>
+            Load demo project
+          </Button>
+        }
+      />
       <Panel title="Open a project">
         {!inTauri ? (
           <p className="dim">
@@ -80,7 +84,11 @@ export function Projects() {
           <input
             ref={(el) => {
               folderInput.current = el;
-              el?.setAttribute('webkitdirectory', '');
+              if (el) {
+                el.setAttribute('directory', '');
+                el.setAttribute('webkitdirectory', '');
+                el.setAttribute('multiple', 'multiple');
+              }
             }}
             type="file"
             multiple
@@ -92,12 +100,13 @@ export function Projects() {
           />
         </div>
       </Panel>
-      <Panel title={`Workspace projects (${projects.length})`}>
-        {projects.length === 0 ? (
+      <Panel title={`Workspace projects (${visible.length}/${projects.length})`}>
+        <SearchInput value={query} onChange={setQuery} placeholder="Filter projects…" />
+        {visible.length === 0 ? (
           <EmptyState title="No projects registered" hint="Open a folder or load the demo." />
         ) : (
           <div className="list">
-            {projects.map((project) => (
+            {visible.map((project) => (
               <div className="row" key={project.id}>
                 <div className="grow">
                   <strong>{project.name}</strong>

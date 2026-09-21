@@ -5,6 +5,7 @@ import {
   MemorySink,
   defaultConfig,
   describeConfig,
+  languageForExtension,
   mergeConfig,
   validateConfig,
 } from '@tahlely/infrastructure';
@@ -40,6 +41,31 @@ describe('logger', () => {
     const line = JSON.stringify(sink.records[0]);
     expect(line).not.toContain('sk-abcdefgh');
     expect(line).not.toContain('shh');
+  });
+
+  it('recursively redacts nested secret values', () => {
+    const sink = new MemorySink();
+    const logger = new Logger({ sinks: [sink] });
+    logger.info('app', 'ok', {
+      nested: { apiKey: 'shh', safe: 'keep' },
+      arr: [{ token: 'abc123' }, 'public'],
+    });
+    const logged = JSON.stringify(sink.records[0]);
+    expect(logged).not.toContain('shh');
+    expect(logged).not.toContain('abc123');
+    expect(logged).toContain('keep');
+  });
+});
+
+describe('project language detection', () => {
+  it('recognizes PowerShell, Batch, Protobuf, Dockerfile, and SVG files', () => {
+    expect(languageForExtension('.ps1')).toBe('powershell');
+    expect(languageForExtension('.psm1')).toBe('powershell');
+    expect(languageForExtension('.bat')).toBe('batch');
+    expect(languageForExtension('.cmd')).toBe('batch');
+    expect(languageForExtension('.proto')).toBe('protobuf');
+    expect(languageForExtension('dockerfile')).toBe('dockerfile');
+    expect(languageForExtension('.svg')).toBe('svg');
   });
 });
 

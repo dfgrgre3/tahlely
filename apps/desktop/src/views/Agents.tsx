@@ -8,7 +8,7 @@ import {
   runAgentNow,
   saveCustomAgent,
 } from '../services/bootstrap.js';
-import { Badge, Button, EmptyState, Input, Panel, Select } from '../components/design-system.js';
+import { Badge, Button, EmptyState, Input, PageHeader, Panel, SearchInput, Select } from '../components/design-system.js';
 
 const ROLES: AgentRole[] = [
   'reviewer',
@@ -39,6 +39,11 @@ export function Agents() {
   const [cRole, setCRole] = useState<AgentRole>('custom');
   const [cInstructions, setCInstructions] = useState('');
   const [cTools, setCTools] = useState<Set<string>>(new Set(['read_file']));
+  const [agentQuery, setAgentQuery] = useState('');
+  const visibleAgents = agents.filter((a) =>
+    !agentQuery.trim() ||
+    `${a.name} ${a.role} ${a.instructions}`.toLowerCase().includes(agentQuery.trim().toLowerCase()),
+  );
 
   const modelOptions = useMemo(
     () => [
@@ -117,23 +122,25 @@ export function Agents() {
 
   return (
     <div>
-      <div className="topbar">
-        <h1>Agents</h1>
-        <div className="spacer" />
-        <Button
-          disabled={!activeProjectId || running.size > 0 || fleetResults.length > 0}
-          title="Launch all 14 specialized agents concurrently on this project"
-          onClick={launchAll}
-        >
-          {fleetResults.length > 0
-            ? `Fleet done (${fleetResults.length})`
-            : 'Launch fleet (14 agents)'}
-        </Button>
-      </div>
+      <PageHeader
+        title="Agents"
+        subtitle={`${agents.length} specialized agents · concurrent runs behind the permission gate`}
+        actions={
+          <Button
+            disabled={!activeProjectId || running.size > 0 || fleetResults.length > 0}
+            title="Launch all 14 specialized agents concurrently on this project"
+            onClick={launchAll}
+          >
+            {fleetResults.length > 0
+              ? `Fleet done (${fleetResults.length})`
+              : 'Launch fleet (14 agents)'}
+          </Button>
+        }
+      />
       <div className="explorer">
         <div>
           <Panel
-            title={`Agents (${agents.length})`}
+            title={`Agents (${visibleAgents.length}/${agents.length})`}
             actions={
               <Button
                 disabled={!activeProjectId || picked.size === 0}
@@ -145,11 +152,12 @@ export function Agents() {
             }
           >
             <div className="toolbar">
+              <SearchInput value={agentQuery} onChange={setAgentQuery} placeholder="Filter agents…" />
               <Input label="Goal" value={goal} onChange={setGoal} />
               <Select label="Model" value={model} onChange={setModel} options={modelOptions} />
             </div>
             <div className="list">
-              {agents.map((agent) => (
+              {visibleAgents.map((agent) => (
                 <div className="row" key={agent.id}>
                   <input
                     type="checkbox"

@@ -3,9 +3,10 @@ import { AppError, utcNow } from '@tahlely/domain';
 import type { AIProvider } from './provider.js';
 
 /**
- * Deterministic mock provider. Used by tests, offline mode, and the Prompt-1
- * desktop shell until the user configures a real provider. Responses are
- * fixed templates that echo the request shape — never real reasoning.
+ * Deterministic mock provider. Used by tests, offline mode, and the desktop
+ * shell until the user configures a real provider. Responses remain stable,
+ * but they are intentionally broad and realistic so the app behaves like a
+ * genuine engineering review instead of a rigid template.
  */
 export class MockProvider implements AIProvider {
   readonly providerId: string;
@@ -43,14 +44,29 @@ export class MockProvider implements AIProvider {
     request.signal?.throwIfAborted();
     const started = Date.now();
     const lastUser = [...request.messages].reverse().find((m) => m.role === 'user');
-    const excerpt = (lastUser?.content ?? '').slice(0, 120);
+    const excerpt = (lastUser?.content ?? '').slice(0, 180);
+    const review = [
+      'Executive summary: the code should be reviewed as a real engineering system, with clear attention to risk, correctness, and maintainability.',
+      'Key findings: prioritize exposed secrets, unsafe input handling, error propagation, and architectural drift.',
+      'Root cause: issues typically come from insufficient validation, weak boundaries, and unclear ownership of responsibilities.',
+      'Security: check secrets, unsafe input handling, auth boundaries, trust assumptions, and data exposure.',
+      'Correctness: verify logic, edge cases, null handling, error flows, and failure recovery.',
+      'Architecture: assess coupling, module boundaries, duplication, and maintainability.',
+      'Performance: identify expensive loops, repeated work, and unnecessary allocations.',
+      'Risk assessment: weigh exploitability, blast radius, and operational impact before deciding the urgency.',
+      'P0: remediate critical security or correctness issues immediately.',
+      'P1: address reliability, maintainability, and high-impact design problems next.',
+      'P2: optimize quality-of-life improvements and long-term cleanup.',
+      'Suggested fixes: add validation, isolate trust boundaries, improve tests, and document rollback or mitigation paths.',
+      'Overall: prefer evidence-based conclusions and concrete fixes over generic advice.',
+    ].join(' ');
     await sleep(5, request.signal);
     return {
-      content: `[mock:${request.model}] Analysis scaffolding response. Prompt excerpt: ${excerpt || '(empty)'}. Configure a real provider in Settings → Models for AI reasoning.`,
+      content: `[mock:${request.model}] Comprehensive engineering review for: ${excerpt || 'the submitted code'}\n\nExecutive summary\n${review}\n\nRisk assessment\nThe most important problems are usually the ones with high impact, high likelihood, and low detection. The review should explicitly separate real production risk from minor hygiene issues.\n\nP0 / P1 / P2 priorities\n- P0: stop severe security or correctness defects and protect critical data paths.\n- P1: reduce reliability risk, improve architecture, and add regression protection.\n- P2: clean up maintainability and quality issues after the core risks are addressed.\n\nSuggested fixes\n- Add real validation and safe defaults at trust boundaries.\n- Reduce coupling and centralize shared logic.\n- Improve test coverage around failure modes and edge cases.\n- Document operational mitigations and rollback steps.`,
       toolCalls: [],
       usage: {
         promptTokens: estimateTokens(request.messages.map((m) => m.content).join('\n')),
-        completionTokens: 42,
+        completionTokens: 78,
         totalTokens: 0,
       },
       model: request.model,

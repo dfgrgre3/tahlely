@@ -58,7 +58,8 @@ export class AnalysisEngine {
       run.projectId,
     );
 
-    const requested: AnalyzerKind[] = run.analyzerIds;
+    const requested: AnalyzerKind[] =
+      run.analyzerIds.length > 0 ? run.analyzerIds : this.registry.kinds();
     const total = requested.length;
     const results: (AnalyzerResult | undefined)[] = new Array(total);
     let completed = 0;

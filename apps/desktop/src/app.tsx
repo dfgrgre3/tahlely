@@ -5,6 +5,7 @@ import { useAppStore } from './store/app-store.js';
 import { services } from './services/bootstrap.js';
 import { ErrorBanner } from './components/design-system.js';
 import { Dashboard } from './views/Dashboard.js';
+import { Analytics } from './views/Analytics.js';
 import { Projects } from './views/Projects.js';
 import { Workspace } from './views/Workspace.js';
 import { Reports } from './views/Reports.js';
@@ -18,20 +19,36 @@ import { Terminal } from './views/Terminal.js';
 import { Settings } from './views/Settings.js';
 import { Models } from './views/Models.js';
 
-const NAV: { to: string; label: string }[] = [
-  { to: '/', label: 'Dashboard' },
-  { to: '/projects', label: 'Projects' },
-  { to: '/workspace', label: 'Workspace' },
-  { to: '/analyze', label: 'File Analyzer' },
-  { to: '/review', label: 'File Review' },
-  { to: '/duplicates', label: 'Duplicates' },
-  { to: '/reports', label: 'Reports' },
-  { to: '/conversations', label: 'Conversations' },
-  { to: '/agents', label: 'Agents' },
-  { to: '/approvals', label: 'Approvals' },
-  { to: '/terminal', label: 'Terminal' },
-  { to: '/models', label: 'Models' },
-  { to: '/settings', label: 'Settings' },
+const NAV_GROUPS: { section: string; items: { to: string; label: string; icon: string }[] }[] = [
+  {
+    section: 'Analyze',
+    items: [
+      { to: '/', label: 'Overview', icon: '◈' },
+      { to: '/analytics', label: 'Analytics', icon: '📊' },
+      { to: '/workspace', label: 'Workspace', icon: '▣' },
+      { to: '/analyze', label: 'Analyzer', icon: '◉' },
+      { to: '/review', label: 'Review', icon: '✎' },
+      { to: '/duplicates', label: 'Duplicates', icon: '⧉' },
+      { to: '/reports', label: 'Reports', icon: '▤' },
+    ],
+  },
+  {
+    section: 'Collaborate',
+    items: [
+      { to: '/projects', label: 'Projects', icon: '▦' },
+      { to: '/conversations', label: 'Conversations', icon: '✉' },
+      { to: '/agents', label: 'Agents', icon: '⚙' },
+      { to: '/approvals', label: 'Approvals', icon: '✓' },
+    ],
+  },
+  {
+    section: 'System',
+    items: [
+      { to: '/terminal', label: 'Terminal', icon: '›' },
+      { to: '/models', label: 'Models', icon: '⬢' },
+      { to: '/settings', label: 'Settings', icon: '☰' },
+    ],
+  },
 ];
 
 function Shell() {
@@ -76,25 +93,44 @@ function Shell() {
   return (
     <div className="shell">
       <nav className="sidebar">
-        <div className="brand">
-          Tahlely<small>AI Engineering Platform</small>
+        <div className="brand-wrap">
+          <div className="brand-mark">T</div>
+          <div className="brand">
+            <span>Tahlely</span>
+            <small>AI Engineering Platform</small>
+          </div>
         </div>
-        {NAV.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === '/'}
-            className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
-          >
-            {item.label}
-            {item.to === '/approvals' && approvals.length > 0 ? ` (${approvals.length})` : ''}
-          </NavLink>
+
+        <div className="nav-section">Tahlely</div>
+        {NAV_GROUPS.map((group) => (
+          <div key={group.section}>
+            <div className="nav-section">{group.section}</div>
+            {group.items.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.to === '/'}
+                className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+              >
+                <span className="nav-icon" aria-hidden="true">
+                  {item.icon}
+                </span>
+                <span>{item.label}</span>
+                {item.to === '/approvals' && approvals.length > 0 ? (
+                  <span className="nav-count">{approvals.length}</span>
+                ) : null}
+              </NavLink>
+            ))}
+          </div>
         ))}
+        <div className="sidebar-footer">
+          <span className="dim">Tahlely 0.1.0 · comprehensive analysis by default</span>
+        </div>
       </nav>
       <main className="main">
         <div className="topbar">
           <select
-            className="input"
+            className="input input-select"
             value={activeProjectId ?? ''}
             onChange={(event) => {
               const id = event.target.value as ProjectId;
@@ -111,11 +147,17 @@ function Shell() {
             ))}
           </select>
           <div className="spacer" />
-          <span className="dim">{activeProject ? activeProject.kind : 'foundation 0.1.0'}</span>
+          <div className="topbar-actions">
+            <span className="status-pill status-pill-success">Live</span>
+            <span className="status-pill">
+              {activeProject ? activeProject.kind : 'foundation 0.1.0'}
+            </span>
+          </div>
         </div>
         {error ? <ErrorBanner message={error} onDismiss={clearError} /> : null}
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/analytics" element={<Analytics />} />
           <Route path="/projects" element={<Projects />} />
           <Route path="/workspace" element={<Workspace />} />
           <Route path="/analyze" element={<FileAnalyzer />} />

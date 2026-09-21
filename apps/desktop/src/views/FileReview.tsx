@@ -10,8 +10,11 @@ import {
   Button,
   CodeBlock,
   EmptyState,
+  PageHeader,
   Panel,
+  SearchInput,
   SeverityBadge,
+  Tabs,
 } from '../components/design-system.js';
 
 export function FileReview() {
@@ -25,6 +28,13 @@ export function FileReview() {
   const [selected, setSelected] = useState<FileNode>();
   const [content, setContent] = useState('');
   const [saved, setSaved] = useState(false);
+  const [fileQuery, setFileQuery] = useState('');
+  const [paneTab, setPaneTab] = useState<'code' | 'errors' | 'report' | 'about'>('code');
+  const treeFiles = useMemo(() => {
+    const q = fileQuery.trim().toLowerCase();
+    if (!q) return files;
+    return files.filter((f) => f.relativePath.toLowerCase().includes(q));
+  }, [files, fileQuery]);
 
   useEffect(() => {
     if (!activeProjectId) return;
@@ -98,20 +108,18 @@ export function FileReview() {
 
   return (
     <div>
-      <div className="topbar">
-        <h1>File Review</h1>
-        <div className="spacer" />
-        <span className="dim">
-          {files.length} files · {findings.length} findings
-        </span>
-      </div>
+      <PageHeader
+        title="File Review"
+        subtitle={`${files.length} files · ${findings.length} findings · per-line fixes with exact lines`}
+      />
       <div className="explorer">
-        <Panel title={`Explorer (${files.length})`}>
-          {files.length === 0 ? (
+        <Panel title={`Explorer (${treeFiles.length}/${files.length})`}>
+          <SearchInput value={fileQuery} onChange={setFileQuery} placeholder="Filter files…" />
+          {treeFiles.length === 0 ? (
             <EmptyState title="No files indexed" hint="Upload a folder, then run an analysis." />
           ) : (
             <FileTree
-              files={files}
+              files={treeFiles}
               findingsByPath={findingsByPath}
               selectedPath={selected?.path}
               onSelect={setSelected}
@@ -126,92 +134,111 @@ export function FileReview() {
             />
           </Panel>
         ) : (
+          <div>
+            <Tabs
+              tabs={[
+                { value: 'code', label: 'Code + improvements' },
+                { value: 'errors', label: `Errors & fixes (${fileFindings.length})` },
+                { value: 'report', label: 'File report' },
+                { value: 'about', label: 'What this file does' },
+              ]}
+              active={paneTab}
+              onChange={setPaneTab}
+            />
           <div className="panes">
-            {/* Pane 1: original code + per-line comments + improved lines */}
-            <Panel title={`1 · Code + improvements — ${selected.relativePath}`}>
-              <div className="code">
-                {lines.slice(0, 800).map((line, index) => {
-                  const lineNo = index + 1;
-                  const notes = annotationsByLine.get(lineNo) ?? [];
-                  return (
-                    <div key={lineNo}>
-                      <div className="code-line">
-                        <span className="line-no">{lineNo}</span>
-                        <span className="line-text">{line || ' '}</span>
-                      </div>
-                      {notes.map((note, i) => (
-                        <div key={i} className="anno">
-                          <div className="anno-comment">
-                            {note.severity ? <SeverityBadge severity={note.severity} /> : null}
-                            <span>💡 {note.comment}</span>
-                          </div>
-                          {note.improved && note.improved !== line ? (
-                            <div className="code-line anno-improved">
-                              <span className="line-no">→</span>
-                              <span className="line-text">{note.improved}</span>
-                            </div>
-                          ) : null}
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })}
-              </div>
-            </Panel>
-            {/* Pane 2: error lines + how to fix them */}
-            <Panel title={`2 · Errors & fixes (${fileFindings.length})`}>
-              {fileFindings.length === 0 ? (
-                <EmptyState title="No errors" hint="This file has no tool findings." />
-              ) : (
+            {paneTab === 'code' ? (
+              <Panel title={`1 · Code + improvements — ${selected.relativePath}`}>
                 <div className="code">
-                  {fileFindings.map((finding) => (
-                    <div key={finding.id} className="anno">
-                      <div className="code-line">
-                        <span className="line-no">{finding.line ?? '–'}</span>
-                        <span className="line-text">
-                          {finding.line ? (lines[finding.line - 1] ?? '') : '(project-wide)'}
-                        </span>
-                      </div>
-                      <div className="anno-comment">
-                        <SeverityBadge severity={finding.severity} />
-                        <span>
-                          {'//'} Fix: {finding.recommendation ?? finding.description} (
-                          {finding.ruleId})
-                        </span>
-                      </div>
-                      {finding.suggestedFix ? (
-                        <div className="code-line anno-improved">
-                          <span className="line-no">→</span>
-                          <span className="line-text">{finding.suggestedFix}</span>
+                  {lines.slice(0, 800).map((line, index) => {
+                    const lineNo = index + 1;
+                    const notes = annotationsByLine.get(lineNo) ?? [];
+                    return (
+                      <div key={lineNo}>
+                        <div className="code-line">
+                          <span className="line-no">{lineNo}</span>
+                          <span className="line-text">{line || ' '}</span>
                         </div>
-                      ) : null}
-                    </div>
-                  ))}
+                        {notes.map((note, i) => (
+                          <div key={i} className="anno">
+                            <div className="anno-comment">
+                              {note.severity ? <SeverityBadge severity={note.severity} /> : null}
+                              <span>💡 {note.comment}</span>
+                            </div>
+                            {note.improved && note.improved !== line ? (
+                              <div className="code-line anno-improved">
+                                <span className="line-no">→</span>
+                                <span className="line-text">{note.improved}</span>
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
                 </div>
-              )}
-            </Panel>
-            {/* Pane 3: comprehensive file report */}
-            <Panel
-              title="3 · File report"
-              actions={
-                <Button variant="secondary" onClick={() => void saveReport()} disabled={saved}>
-                  {saved ? 'Saved ✓' : 'Save report'}
-                </Button>
-              }
-            >
-              {report ? <CodeBlock code={render(report)} language="markdown" /> : null}
-            </Panel>
-            {/* Pane 4: what the file does */}
-            <Panel title="4 · What this file does">
-              <CodeBlock
-                code={describeFilePurpose(content, selected.relativePath)}
-                language="markdown"
-              />
-              <p className="dim">
-                <Badge>{selected.language}</Badge> {selected.size} bytes ·{' '}
-                {annotations.filter((a) => a.source === 'heuristic').length} line suggestions
-              </p>
-            </Panel>
+              </Panel>
+            ) : null}
+
+            {paneTab === 'errors' ? (
+              <Panel title={`2 · Errors & fixes (${fileFindings.length})`}>
+                {fileFindings.length === 0 ? (
+                  <EmptyState title="No errors" hint="This file has no tool findings." />
+                ) : (
+                  <div className="code">
+                    {fileFindings.map((finding) => (
+                      <div key={finding.id} className="anno">
+                        <div className="code-line">
+                          <span className="line-no">{finding.line ?? '–'}</span>
+                          <span className="line-text">
+                            {finding.line ? lines[finding.line - 1] ?? '' : '(project-wide)'}
+                          </span>
+                        </div>
+                        <div className="anno-comment">
+                          <SeverityBadge severity={finding.severity} />
+                          <span>
+                            {'//'} Fix: {finding.recommendation ?? finding.description} (
+                            {finding.ruleId})
+                          </span>
+                        </div>
+                        {finding.suggestedFix ? (
+                          <div className="code-line anno-improved">
+                            <span className="line-no">→</span>
+                            <span className="line-text">{finding.suggestedFix}</span>
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Panel>
+            ) : null}
+
+            {paneTab === 'report' ? (
+              <Panel
+                title="3 · File report"
+                actions={
+                  <Button variant="secondary" onClick={() => void saveReport()} disabled={saved}>
+                    {saved ? 'Saved ✓' : 'Save report'}
+                  </Button>
+                }
+              >
+                {report ? <CodeBlock code={render(report)} language="markdown" /> : null}
+              </Panel>
+            ) : null}
+
+            {paneTab === 'about' ? (
+              <Panel title="4 · What this file does">
+                <CodeBlock
+                  code={describeFilePurpose(content, selected.relativePath)}
+                  language="markdown"
+                />
+                <p className="dim">
+                  <Badge>{selected.language}</Badge> {selected.size} bytes ·{' '}
+                  {annotations.filter((a) => a.source === 'heuristic').length} line suggestions
+                </p>
+              </Panel>
+            ) : null}
+          </div>
           </div>
         )}
       </div>

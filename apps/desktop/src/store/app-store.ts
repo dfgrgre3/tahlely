@@ -73,6 +73,7 @@ interface AppState {
   }) => Promise<void>;
   selectConversation: (id: string) => Promise<void>;
   newConversation: () => Promise<void>;
+  deleteConversation: (id: string) => Promise<void>;
   sendMessage: (text: string) => Promise<void>;
   decide: (requestId: string, approve: boolean, note?: string) => Promise<void>;
   refreshTasks: () => void;
@@ -187,7 +188,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
     try {
       const project = await importUploadedFolder(name, files);
       // Auto full analysis right after import (per product flow).
-      const task = await runProjectAnalysis(project.id, 'standard', 'tool-only', () => {
+      const task = await runProjectAnalysis(project.id, 'comprehensive', 'tool-only', () => {
         set({ tasks: services.tasks.list(project.id) });
       });
       await waitForTask(task.id);
@@ -306,6 +307,18 @@ export const useAppStore = create<AppState>()((set, get) => ({
     set({ activeConversationId: id });
     const messages = await services.conversations.listMessages(id);
     set({ messages });
+  },
+
+  deleteConversation: async (id) => {
+    const { activeProjectId, activeConversationId } = get();
+    await services.conversations.removeConversation(id);
+    if (!activeProjectId) return;
+    const conversations = await services.conversations.listConversations(activeProjectId);
+    const nextId =
+      activeConversationId === id ? (conversations[0]?.id ?? (await ensureConversation(activeProjectId))) : (activeConversationId ?? conversations[0]?.id);
+    const finalList = await services.conversations.listConversations(activeProjectId);
+    const messages = nextId ? await services.conversations.listMessages(nextId) : [];
+    set({ conversations: finalList, activeConversationId: nextId, messages });
   },
 
   newConversation: async () => {

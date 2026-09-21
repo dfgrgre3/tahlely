@@ -34,6 +34,7 @@ const LANGUAGE_BY_EXTENSION: Record<string, LanguageId> = {
   '.htm': 'html',
   '.css': 'css',
   '.scss': 'css',
+  '.svg': 'svg',
   '.json': 'json',
   '.yaml': 'yaml',
   '.yml': 'yaml',
@@ -43,14 +44,34 @@ const LANGUAGE_BY_EXTENSION: Record<string, LanguageId> = {
   '.sql': 'sql',
   '.sh': 'shell',
   '.bash': 'shell',
+  '.zsh': 'shell',
+  '.ps1': 'powershell',
+  '.psm1': 'powershell',
+  '.psd1': 'powershell',
+  '.ps1xml': 'powershell',
+  '.bat': 'batch',
+  '.cmd': 'batch',
+  '.proto': 'protobuf',
+  '.dockerfile': 'dockerfile',
 };
 
 export function languageForExtension(extension: string): LanguageId {
-  return LANGUAGE_BY_EXTENSION[extension.toLowerCase()] ?? 'unknown';
+  const raw = extension.trim();
+  if (!raw) return 'unknown';
+
+  const normalized = raw.toLowerCase();
+  if (normalized === 'dockerfile' || normalized === 'docker-compose') {
+    return normalized === 'dockerfile' ? 'dockerfile' : 'yaml';
+  }
+
+  const withDot = normalized.startsWith('.') ? normalized : `.${normalized}`;
+  return LANGUAGE_BY_EXTENSION[withDot] ?? 'unknown';
 }
 
 export function extensionOf(fileName: string): string {
   const base = fileName.split('/').pop() ?? fileName;
+  const lower = base.toLowerCase();
+  if (lower === 'dockerfile') return 'dockerfile';
   const dot = base.lastIndexOf('.');
   return dot > 0 ? base.slice(dot).toLowerCase() : '';
 }

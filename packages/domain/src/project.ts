@@ -14,12 +14,17 @@ export type LanguageId =
   | 'php'
   | 'html'
   | 'css'
+  | 'svg'
   | 'json'
   | 'yaml'
   | 'toml'
   | 'markdown'
   | 'sql'
   | 'shell'
+  | 'powershell'
+  | 'batch'
+  | 'protobuf'
+  | 'dockerfile'
   | 'plaintext'
   | 'unknown';
 

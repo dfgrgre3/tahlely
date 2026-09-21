@@ -22,15 +22,27 @@ function provider(): Provider {
 }
 
 describe('mock provider', () => {
-  it('answers deterministically and streams', async () => {
+  it('answers deterministically and streams a broad, realistic audit', async () => {
     const mock = new MockProvider();
     expect(await mock.listModels()).toHaveLength(1);
     const chunks: string[] = [];
     const response = await mock.stream(
-      { model: 'mock/mock-reviewer', messages: [{ role: 'user', content: 'review this' }] },
+      {
+        model: 'mock/mock-reviewer',
+        messages: [{ role: 'user', content: 'Audit this code for security, correctness, architecture, and maintenance issues.' }],
+      },
       (chunk) => chunks.push(chunk.delta),
     );
-    expect(response.content).toContain('review this');
+    expect(response.content).toContain('Executive summary');
+    expect(response.content).toContain('Root cause');
+    expect(response.content).toContain('Security');
+    expect(response.content).toContain('Correctness');
+    expect(response.content).toContain('Architecture');
+    expect(response.content).toContain('P0');
+    expect(response.content).toContain('P1');
+    expect(response.content).toContain('P2');
+    expect(response.content).toContain('Suggested fixes');
+    expect(response.content).toContain('review');
     expect(chunks.join('')).toContain('mock');
   });
 });

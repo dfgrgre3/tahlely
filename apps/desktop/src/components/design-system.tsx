@@ -165,11 +165,81 @@ export function DiffBlock({ lines }: { lines: DiffLine[] }) {
   );
 }
 
-export function Stat({ label, value }: { label: string; value: ReactNode }) {
+export function PageHeader({
+  title,
+  subtitle,
+  actions,
+}: {
+  title: string;
+  subtitle?: string;
+  actions?: ReactNode;
+}) {
+  return (
+    <div className="page-header">
+      <div>
+        <h1>{title}</h1>
+        {subtitle ? <div className="subtitle">{subtitle}</div> : null}
+      </div>
+      <div className="spacer" />
+      <div className="page-actions">{actions}</div>
+    </div>
+  );
+}
+
+export function SearchInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <label className="field search-field">
+      <input
+        className="input search-input"
+        value={value}
+        placeholder={placeholder ?? 'Search…'}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
+export function Tabs<T extends string>({
+  tabs,
+  active,
+  onChange,
+}: {
+  tabs: { value: T; label: string; count?: number }[];
+  active: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="tabs" role="tablist">
+      {tabs.map((tab) => (
+        <button
+          key={tab.value}
+          role="tab"
+          aria-selected={tab.value === active}
+          className={`tab${tab.value === active ? ' active' : ''}`}
+          onClick={() => onChange(tab.value)}
+        >
+          {tab.label}
+          {typeof tab.count === 'number' ? <span className="tab-count">{tab.count}</span> : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function Stat({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
   return (
     <div className="stat">
       <span className="stat-value">{value}</span>
       <span className="stat-label">{label}</span>
+      {hint ? <span className="dim">{hint}</span> : null}
     </div>
   );
 }
