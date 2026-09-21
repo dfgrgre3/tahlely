@@ -18,3 +18,11 @@ export function textLines(content: string | undefined): string[] | undefined {
   if (content === undefined) return undefined;
   return content.split('\n');
 }
+
+/**
+ * Indexed Node.extension keeps the leading dot (`.ts`); analyzer checks
+ * compare without it. Normalize once here so every analyzer agrees.
+ */
+export function normalizedExtension(node: { extension: string }): string {
+  return node.extension.replace(/^\./, '').toLowerCase();
+}

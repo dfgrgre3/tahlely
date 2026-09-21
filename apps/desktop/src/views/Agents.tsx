@@ -1,121 +1,284 @@
-import { useEffect, useState } from 'react';
-import type { Agent, AgentRun } from '@tahlely/domain';
+import { useEffect, useMemo, useState } from 'react';
+import type { Agent, AgentRole, AgentRun } from '@tahlely/domain';
 import { useAppStore } from '../store/app-store.js';
-import { listAgentRuns, runAgentNow } from '../services/bootstrap.js';
-import { Badge, Button, EmptyState, Input, Panel } from '../components/design-system.js';
+import {
+  CUSTOM_AGENT_TOOLS,
+  listAgentRuns,
+  listCustomProviders,
+  runAgentNow,
+  saveCustomAgent,
+} from '../services/bootstrap.js';
+import { Badge, Button, EmptyState, Input, Panel, Select } from '../components/design-system.js';
+
+const ROLES: AgentRole[] = [
+  'reviewer',
+  'analyst',
+  'refactorer',
+  'documenter',
+  'tester',
+  'planner',
+  'custom',
+];
 
 export function Agents() {
   const agents = useAppStore((state) => state.agents);
   const activeProjectId = useAppStore((state) => state.activeProjectId);
-  const [runs, setRuns] = useState<AgentRun[]>([]);
-  const [goal, setGoal] = useState(
-    'Review the latest analysis findings and summarize the top risks.',
-  );
-  const [runningId, setRunningId] = useState<string>();
-  const [selected, setSelected] = useState<Agent>();
+  const activeConversationId = useAppStore((state) => state.activeConversationId);
+  const refresh = useAppStore((state) => state.refresh);
 
-  useEffect(() => {
+  const [runs, setRuns] = useState<AgentRun[]>([]);
+  const [goal, setGoal] = useState('Review the latest analysis findings and summarize top risks.');
+  const [running, setRunning] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<Agent>();
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [model, setModel] = useState('mock/mock-reviewer');
+  const fleetResults = useAppStore((state) => state.fleetResults);
+  const launchFleet = useAppStore((state) => state.launchFleet);
+
+  const [cName, setCName] = useState('');
+  const [cRole, setCRole] = useState<AgentRole>('custom');
+  const [cInstructions, setCInstructions] = useState('');
+  const [cTools, setCTools] = useState<Set<string>>(new Set(['read_file']));
+
+  const modelOptions = useMemo(
+    () => [
+      { value: 'mock/mock-reviewer', label: 'Mock (offline)' },
+      ...listCustomProviders().map((p) => ({
+        value: `${p.id}/${p.defaultModel}`,
+        label: `${p.name} — ${p.defaultModel}`,
+      })),
+    ],
+    [],
+  );
+
+  const reloadRuns = () => {
     if (activeProjectId) {
       listAgentRuns(activeProjectId)
         .then(setRuns)
         .catch(() => setRuns([]));
     }
-  }, [activeProjectId, agents.length]);
+  };
 
-  const run = async (agent: Agent) => {
+  useEffect(reloadRuns, [activeProjectId, agents.length]);
+
+  const runOne = async (agent: Agent) => {
     if (!activeProjectId) return;
-    setRunningId(agent.id);
+    setRunning((prev) => new Set(prev).add(agent.id));
     try {
-      const finished = await runAgentNow(agent, activeProjectId, goal);
-      setRuns((previous) => [...previous, finished]);
+      await runAgentNow(agent, activeProjectId, goal, {
+        model,
+        conversationId: activeConversationId,
+      });
     } catch {
-      if (activeProjectId) {
-        listAgentRuns(activeProjectId)
-          .then(setRuns)
-          .catch(() => undefined);
-      }
+      // Failed/rejected runs surface with their error in the runs list.
     } finally {
-      setRunningId(undefined);
+      setRunning((prev) => {
+        const next = new Set(prev);
+        next.delete(agent.id);
+        return next;
+      });
+      reloadRuns();
     }
+  };
+
+  const runSelected = () => {
+    // Concurrent: every picked agent starts its own run with the chosen
+    // model, bound to the active conversation; none blocks the others.
+    for (const agent of agents.filter((a) => picked.has(a.id))) {
+      void runOne(agent);
+    }
+  };
+
+  const launchAll = () => {
+    // The whole fleet (14 specialized agents) runs concurrently, each with
+    // its own domain goal and the selected model.
+    void launchFleet(model);
+  };
+
+  const createAgent = async () => {
+    if (!cName.trim()) return;
+    await saveCustomAgent({
+      name: cName,
+      role: cRole,
+      instructions: cInstructions,
+      toolNames: [...cTools],
+    });
+    setCName('');
+    setCInstructions('');
+    await refresh();
+  };
+
+  const toggle = (set: Set<string>, id: string, apply: (next: Set<string>) => void) => {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    apply(next);
   };
 
   return (
     <div>
       <div className="topbar">
         <h1>Agents</h1>
+        <div className="spacer" />
+        <Button
+          disabled={!activeProjectId || running.size > 0 || fleetResults.length > 0}
+          title="Launch all 14 specialized agents concurrently on this project"
+          onClick={launchAll}
+        >
+          {fleetResults.length > 0
+            ? `Fleet done (${fleetResults.length})`
+            : 'Launch fleet (14 agents)'}
+        </Button>
       </div>
-      {agents.length === 0 ? (
-        <Panel title="Agents">
-          <EmptyState title="No agents" hint="Built-in agents seed automatically on launch." />
-        </Panel>
-      ) : (
-        <div className="explorer">
-          <Panel title={`Agents (${agents.length})`}>
+      <div className="explorer">
+        <div>
+          <Panel
+            title={`Agents (${agents.length})`}
+            actions={
+              <Button
+                disabled={!activeProjectId || picked.size === 0}
+                title="Run every selected agent concurrently on this project"
+                onClick={runSelected}
+              >
+                Run selected ({picked.size})
+              </Button>
+            }
+          >
+            <div className="toolbar">
+              <Input label="Goal" value={goal} onChange={setGoal} />
+              <Select label="Model" value={model} onChange={setModel} options={modelOptions} />
+            </div>
             <div className="list">
               {agents.map((agent) => (
                 <div className="row" key={agent.id}>
+                  <input
+                    type="checkbox"
+                    checked={picked.has(agent.id)}
+                    onChange={() => toggle(picked, agent.id, setPicked)}
+                    title="Select for concurrent run"
+                  />
                   <div className="grow">
-                    <strong>{agent.name}</strong>
-                    <div className="dim">
-                      {agent.role} · tools: {agent.tools.map((t) => t.name).join(', ')}
-                    </div>
+                    <strong>{agent.name}</strong> <Badge>{agent.role}</Badge>
+                    <div className="dim">tools: {agent.tools.map((t) => t.name).join(', ')}</div>
                   </div>
                   <Button variant="secondary" onClick={() => setSelected(agent)}>
                     Inspect
                   </Button>
                   <Button
-                    disabled={!activeProjectId || runningId === agent.id}
-                    onClick={() => void run(agent)}
+                    disabled={!activeProjectId || running.has(agent.id)}
+                    onClick={() => void runOne(agent)}
                   >
-                    {runningId === agent.id ? 'Running…' : 'Run'}
+                    {running.has(agent.id) ? 'Running…' : 'Run'}
                   </Button>
                 </div>
               ))}
             </div>
-            <div className="toolbar" style={{ marginTop: 12 }}>
-              <Input label="Goal for the next run" value={goal} onChange={setGoal} />
-            </div>
           </Panel>
-          <div>
-            <Panel title="Agent detail">
-              {selected ? (
-                <div>
-                  <p>
-                    <strong>{selected.name}</strong> <Badge>{selected.role}</Badge>
-                  </p>
-                  <p className="dim">{selected.instructions}</p>
-                  <p className="dim">Max steps: {selected.maxSteps}</p>
-                </div>
-              ) : (
-                <EmptyState title="Select an agent" hint="Runs are read-only in this phase." />
-              )}
-            </Panel>
-            <Panel title={`Runs (${runs.length})`}>
-              {runs.length === 0 ? (
-                <EmptyState title="No runs yet" />
-              ) : (
-                <div className="list">
-                  {runs
-                    .slice(-10)
-                    .reverse()
-                    .map((item) => (
-                      <div className="row" key={item.id}>
-                        <Badge tone={item.status === 'completed' ? 'low' : 'high'}>
-                          {item.status}
-                        </Badge>
-                        <div className="grow">
-                          <div className="dim">{item.input.slice(0, 120)}</div>
-                          {item.output ? <div>{item.output.slice(0, 240)}</div> : null}
-                          {item.error ? <div className="dim">Error: {item.error}</div> : null}
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              )}
-            </Panel>
-          </div>
+          <Panel title="Build a custom agent">
+            <div className="toolbar">
+              <Input
+                label="Name"
+                value={cName}
+                onChange={setCName}
+                placeholder="Security sweeper"
+              />
+              <Select
+                label="Role"
+                value={cRole}
+                onChange={(value) => setCRole(value as AgentRole)}
+                options={ROLES.map((r) => ({ value: r, label: r }))}
+              />
+            </div>
+            <label className="field">
+              <span className="field-label">Instructions (its job — you decide)</span>
+              <textarea
+                className="input"
+                rows={3}
+                value={cInstructions}
+                onChange={(event) => setCInstructions(event.target.value)}
+                placeholder="What should this agent do, and what must it never do?"
+              />
+            </label>
+            <div className="toolbar">
+              {Object.entries(CUSTOM_AGENT_TOOLS).map(([name, tool]) => (
+                <label key={name} className="dim">
+                  <input
+                    type="checkbox"
+                    checked={cTools.has(name)}
+                    onChange={() => toggle(cTools, name, setCTools)}
+                  />{' '}
+                  {name} ({tool.permission})
+                </label>
+              ))}
+            </div>
+            <Button variant="secondary" disabled={!cName.trim()} onClick={() => void createAgent()}>
+              Create agent
+            </Button>
+          </Panel>
         </div>
-      )}
+        <div>
+          <Panel title="Agent detail">
+            {selected ? (
+              <div>
+                <p>
+                  <strong>{selected.name}</strong> <Badge>{selected.role}</Badge>
+                </p>
+                <p className="dim">{selected.instructions}</p>
+                <p className="dim">Max steps: {selected.maxSteps}</p>
+              </div>
+            ) : (
+              <EmptyState title="Select an agent" hint="Runs execute behind the permission gate." />
+            )}
+          </Panel>
+          <Panel title={`Fleet results (${fleetResults.length})`}>
+            {fleetResults.length === 0 ? (
+              <EmptyState
+                title="Fleet not launched"
+                hint="Launch fleet runs 14 specialized agents concurrently on this project."
+              />
+            ) : (
+              <div className="list">
+                {fleetResults.map((result) => (
+                  <div className="row" key={result.agentName}>
+                    <Badge tone={result.status === 'completed' ? 'low' : 'high'}>
+                      {result.status}
+                    </Badge>
+                    <div className="grow">
+                      <strong>{result.agentName}</strong>
+                      <div className="dim">{result.durationMs}ms</div>
+                      {result.output ? <div>{result.output.slice(0, 200)}</div> : null}
+                      {result.error ? <div className="dim">Error: {result.error}</div> : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Panel>
+          <Panel title={`Runs (${runs.length})`}>
+            {runs.length === 0 ? (
+              <EmptyState title="No runs yet" />
+            ) : (
+              <div className="list">
+                {runs
+                  .slice(-10)
+                  .reverse()
+                  .map((item) => (
+                    <div className="row" key={item.id}>
+                      <Badge tone={item.status === 'completed' ? 'low' : 'high'}>
+                        {item.status}
+                      </Badge>
+                      <div className="grow">
+                        <div className="dim">{item.input.slice(0, 120)}</div>
+                        {item.output ? <div>{item.output.slice(0, 240)}</div> : null}
+                        {item.error ? <div className="dim">Error: {item.error}</div> : null}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </Panel>
+        </div>
+      </div>
     </div>
   );
 }

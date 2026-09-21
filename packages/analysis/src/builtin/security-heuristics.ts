@@ -54,6 +54,47 @@ const RULES: SecurityRule[] = [
     recommendation: 'Use SHA-256 or better; bcrypt/argon2 for passwords.',
   },
   {
+    ruleId: 'security-heuristics.aws-access-key',
+    title: 'AWS access key in source',
+    description: 'Hardcoded AWS access keys bill the account owner for attacker activity.',
+    severity: 'critical',
+    pattern: /\bAKIA[0-9A-Z]{16}\b/,
+    recommendation: 'Rotate the key, remove it from history, and use IAM roles or a secret store.',
+  },
+  {
+    ruleId: 'security-heuristics.github-token',
+    title: 'GitHub token in source',
+    description: 'ghp_/gho_/github_pat_ tokens grant API access to repositories.',
+    severity: 'critical',
+    pattern: /\b(ghp_[A-Za-z0-9]{36,}|gho_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})/,
+    recommendation: 'Revoke the token, remove it from history, and use a scoped secret store.',
+  },
+  {
+    ruleId: 'security-heuristics.slack-token',
+    title: 'Slack token in source',
+    description: 'xox[bpas]- tokens allow reading and posting as the owning workspace identity.',
+    severity: 'critical',
+    pattern: /\bxox[bpas]-[A-Za-z0-9-]{10,}\b/,
+    recommendation: 'Revoke the token and move Slack credentials to a secret store.',
+  },
+  {
+    ruleId: 'security-heuristics.jwt-token',
+    title: 'JWT hardcoded in source',
+    description: 'A full JWT in source usually means a long-lived credential checked into code.',
+    severity: 'high',
+    pattern: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/,
+    recommendation: 'Issue short-lived tokens at runtime instead of embedding them.',
+  },
+  {
+    ruleId: 'security-heuristics.generic-long-secret',
+    title: 'Suspicious high-entropy credential',
+    description: 'A long opaque value assigned in code that is not a URL or path.',
+    severity: 'medium',
+    pattern: /[:=]\s*['"][A-Za-z0-9_\-+/=]{32,}['"]/,
+    recommendation:
+      'Confirm it is not a credential; if it is, rotate and move it to a secret store.',
+  },
+  {
     ruleId: 'security-heuristics.insecure-url',
     title: 'Plaintext HTTP URL',
     description: 'Credentials or data sent over http:// can be intercepted.',
@@ -117,7 +158,8 @@ export class SecurityHeuristicsAnalyzer implements Analyzer {
               relatedSymbols: [],
             }),
           );
-          break;
+          // Every rule is evaluated per line: a generic secret assignment
+          // must not mask a more specific credential finding on the same line.
         }
       });
     }

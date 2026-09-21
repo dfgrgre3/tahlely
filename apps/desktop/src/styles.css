@@ -414,3 +414,119 @@ body,
   overflow-y: auto;
   white-space: pre-wrap;
 }
+
+/* File Analyzer */
+textarea.input {
+  width: 100%;
+  font-family: var(--mono, monospace);
+  resize: vertical;
+  min-height: 160px;
+}
+
+.file-item-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-item-row .file-item {
+  flex: 1;
+  text-align: left;
+}
+
+.error-text {
+  color: var(--danger, #e5534b);
+  font-size: 13px;
+}
+
+/* File tree (VS Code style) */
+.tree {
+  display: flex;
+  flex-direction: column;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+  border-radius: 4px;
+}
+
+.tree-row:hover {
+  background: var(--bg-soft);
+}
+
+.tree-row.active {
+  background: var(--accent-soft, rgba(88, 166, 255, 0.18));
+}
+
+.tree-icon {
+  width: 16px;
+  opacity: 0.8;
+}
+
+.tree-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* File review panes */
+.panes {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.code-line {
+  display: flex;
+  gap: 10px;
+  font-family: var(--mono, monospace);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.line-no {
+  min-width: 34px;
+  text-align: right;
+  color: var(--dim, #8b949e);
+  user-select: none;
+}
+
+.line-text {
+  flex: 1;
+}
+
+.anno {
+  margin: 2px 0 2px 44px;
+  border-left: 3px solid var(--accent, #58a6ff);
+  background: var(--bg-soft);
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+
+.anno-comment {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--fg);
+}
+
+.anno-improved {
+  border-left: 3px solid var(--success, #3fb950);
+  background: rgba(63, 185, 80, 0.08);
+  border-radius: 4px;
+  padding: 0 8px;
+  margin-top: 2px;
+}

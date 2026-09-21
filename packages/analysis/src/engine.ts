@@ -3,9 +3,20 @@ import type { AnalysisRun, AnalyzerKind, Finding, NewFinding } from '@tahlely/do
 import { newId, utcNow } from '@tahlely/domain';
 import type { Analyzer, AnalyzerFile } from './analyzer.js';
 import { AnalyzerRegistry } from './analyzer.js';
+import { applySuppressions } from './suppressions.js';
+import type { AnalyzerResult } from './analyzer.js';
 
 export interface EngineCallbacks {
   onProgress?: (completed: number, total: number) => void;
+}
+
+export interface EngineOptions {
+  /**
+   * How many analyzers run concurrently (default 8). Results are always
+   * flattened in the run's analyzer order, so output is deterministic
+   * regardless of scheduling.
+   */
+  concurrency?: number;
 }
 
 /**
@@ -36,6 +47,7 @@ export class AnalysisEngine {
       saveFindings: (findings: Finding[]) => Promise<void>;
     },
     callbacks: EngineCallbacks = {},
+    options: EngineOptions = {},
   ): Promise<{ run: AnalysisRun; findings: Finding[] }> {
     const started = Date.now();
     const active: AnalysisRun = { ...run, status: 'running', startedAt: utcNow() };
@@ -46,38 +58,60 @@ export class AnalysisEngine {
       run.projectId,
     );
 
-    const findings: Finding[] = [];
     const requested: AnalyzerKind[] = run.analyzerIds;
+    const total = requested.length;
+    const results: (AnalyzerResult | undefined)[] = new Array(total);
     let completed = 0;
+    // Inline suppressions (tahlely-ignore) are honored at the engine
+    // boundary, so they apply to every analyzer without code changes.
+    const contentsByPath = new Map(
+      files
+        .filter((file) => file.content !== undefined)
+        .map((file) => [file.node.relativePath, file.content as string]),
+    );
+    const findings: Finding[] = [];
     try {
-      for (const kind of requested) {
-        const analyzer = this.registry.get(kind);
-        if (!analyzer) continue;
-        const result = await analyzer.analyze({
-          analysisId: run.id,
-          projectId: run.projectId,
-          projectRoot: '',
-          files,
-          reportProgress: (done, total) => {
-            const overall = (completed + done / Math.max(1, total)) / requested.length;
-            callbacks.onProgress?.(overall, 1);
-          },
-        });
-        for (const draft of result.findings) {
-          findings.push(materialize(run, draft));
-        }
-        completed += 1;
-        callbacks.onProgress?.(completed, requested.length);
-        await this.events.emit(
-          'AnalysisProgress',
-          {
+      // Analyzers are independent read-only passes — run them concurrently
+      // with a bounded worker pool, then flatten in deterministic order.
+      const concurrency = Math.max(1, Math.min(options.concurrency ?? total ?? 1, total || 1));
+      let cursor = 0;
+      const worker = async (): Promise<void> => {
+        while (cursor < total) {
+          const index = cursor;
+          cursor += 1;
+          const kind = requested[index]!;
+          const analyzer = this.registry.get(kind);
+          if (!analyzer) {
+            results[index] = undefined;
+            completed += 1;
+            callbacks.onProgress?.(completed, total);
+            continue;
+          }
+          const result = await analyzer.analyze({
             analysisId: run.id,
             projectId: run.projectId,
-            completed,
-            total: requested.length,
-          },
-          run.projectId,
-        );
+            projectRoot: '',
+            files,
+            reportProgress: () => {},
+          });
+          results[index] = result;
+          completed += 1;
+          callbacks.onProgress?.(completed, total);
+          await this.events.emit(
+            'AnalysisProgress',
+            { analysisId: run.id, projectId: run.projectId, completed, total },
+            run.projectId,
+          );
+        }
+      };
+      await Promise.all(Array.from({ length: concurrency }, () => worker()));
+
+      for (const result of results) {
+        if (!result) continue;
+        const visible = applySuppressions(result.findings, contentsByPath);
+        for (const draft of visible) {
+          findings.push(materialize(run, draft));
+        }
       }
       const finished: AnalysisRun = {
         ...active,

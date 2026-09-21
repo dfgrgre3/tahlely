@@ -78,13 +78,14 @@ export function renderMarkdown(report: Report): string {
     '',
     `Generated: ${report.createdAt} · Source: ${report.generatedBy}`,
     '',
-    '## Summary',
-    '',
-    report.sections[0]?.body ?? '',
-    '',
-    '## Findings',
-    '',
   ];
+  // Every section is rendered in order; the findings table is appended last
+  // from the canonical finding list, so tool/AI narrative sections survive.
+  for (const section of report.sections) {
+    if (section.id === 'findings') continue;
+    lines.push(`## ${section.title}`, '', section.body, '');
+  }
+  lines.push('## Findings', '');
   for (const finding of report.findings) {
     const location = finding.path
       ? `${finding.path}${finding.line ? `:${finding.line}` : ''}`

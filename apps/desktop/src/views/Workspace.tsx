@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { listProfiles } from '@tahlely/analysis';
-import type { AnalysisMode, FileNode } from '@tahlely/domain';
+import { diffRuns, listProfiles, scoreProject } from '@tahlely/analysis';
+import type { AnalysisMode, FileNode, Finding } from '@tahlely/domain';
 import { useAppStore } from '../store/app-store.js';
-import { listProjectFiles, readProjectFile } from '../services/bootstrap.js';
+import { listProjectFiles, readProjectFile, services } from '../services/bootstrap.js';
 import { CodeEditor } from '../components/code-editor.js';
 import {
+  Badge,
   Button,
   EmptyState,
   Panel,
@@ -28,12 +29,15 @@ export function Workspace() {
   const busy = useAppStore((state) => state.busy);
   const runAnalysis = useAppStore((state) => state.runAnalysis);
   const generateReport = useAppStore((state) => state.generateReport);
+  const generateAiReport = useAppStore((state) => state.generateAiReport);
+  const generateToolReport = useAppStore((state) => state.generateToolReport);
 
   const [profileId, setProfileId] = useState('standard');
   const [mode, setMode] = useState<AnalysisMode>('tool-only');
   const [files, setFiles] = useState<FileNode[]>([]);
   const [selectedPath, setSelectedPath] = useState<string>();
   const [content, setContent] = useState('');
+  const [previousFindings, setPreviousFindings] = useState<Finding[] | undefined>();
 
   const project = projects.find((p) => p.id === activeProjectId);
   const latestAnalysis = analyses[analyses.length - 1];
@@ -62,6 +66,30 @@ export function Workspace() {
     return findings.filter((f) => f.path === selected?.relativePath);
   }, [findings, files, selectedPath]);
 
+  // Run comparison: previous completed run vs the latest one.
+  useEffect(() => {
+    if (!activeProjectId || analyses.length < 2) {
+      setPreviousFindings(undefined);
+      return;
+    }
+    const previous = analyses[analyses.length - 2];
+    if (!previous) return;
+    services.analyses
+      .listFindings(activeProjectId, previous.id)
+      .then(setPreviousFindings)
+      .catch(() => setPreviousFindings(undefined));
+  }, [activeProjectId, analyses.length]);
+
+  const runDiff = useMemo(() => {
+    if (!previousFindings) return undefined;
+    return diffRuns(previousFindings, findings);
+  }, [previousFindings, findings]);
+
+  const quality = useMemo(
+    () => scoreProject(findings, latestAnalysis?.summary),
+    [findings, latestAnalysis],
+  );
+
   if (!project) {
     return (
       <Panel title="Workspace">
@@ -81,13 +109,30 @@ export function Workspace() {
         title="Analysis"
         actions={
           latestAnalysis ? (
-            <Button
-              variant="secondary"
-              disabled={busy}
-              onClick={() => void generateReport(latestAnalysis.id, `${project.name} report`)}
-            >
-              Generate report
-            </Button>
+            <>
+              <Button
+                variant="secondary"
+                disabled={busy}
+                onClick={() => void generateReport(latestAnalysis.id, `${project.name} report`)}
+              >
+                Generate report
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={busy}
+                title="Comprehensive report built entirely by the tool's analyzers — every file with exact error lines and fixes. No AI."
+                onClick={() => void generateToolReport(latestAnalysis.id)}
+              >
+                Strict tool report
+              </Button>
+              <Button
+                disabled={busy}
+                title="Findings + code excerpts are sent to the selected model to write the full report"
+                onClick={() => void generateAiReport(latestAnalysis.id)}
+              >
+                {busy ? 'Working…' : 'Generate AI report'}
+              </Button>
+            </>
           ) : undefined
         }
       >
@@ -121,6 +166,26 @@ export function Workspace() {
             Last run: {latestAnalysis.summary.findingsCreated} findings across{' '}
             {latestAnalysis.summary.filesScanned} files in {latestAnalysis.summary.durationMs}ms
             (mode: {latestAnalysis.mode}, profile: {latestAnalysis.profileId}).
+          </p>
+        ) : null}
+        {findings.length > 0 || latestAnalysis ? (
+          <p className="dim">
+            Quality:{' '}
+            <Badge tone={quality.score >= 75 ? 'low' : quality.score >= 40 ? 'medium' : 'high'}>
+              {quality.grade} ({quality.score}/100)
+            </Badge>{' '}
+            {quality.criticalOpen > 0 ? (
+              <Badge tone="high">{quality.criticalOpen} critical</Badge>
+            ) : null}{' '}
+            {quality.hygieneIssues > 0 ? <Badge>{quality.hygieneIssues} hygiene</Badge> : null}
+            {quality.topRules.length > 0 ? ` · top rule: ${quality.topRules[0]?.ruleId}` : ''}
+          </p>
+        ) : null}
+        {runDiff ? (
+          <p className="dim">
+            Since the previous run: <Badge tone="high">+{runDiff.introduced.length} new</Badge>{' '}
+            <Badge tone="low">−{runDiff.resolved.length} fixed</Badge>{' '}
+            <Badge>{runDiff.persisting.length} still open</Badge>
           </p>
         ) : null}
       </Panel>

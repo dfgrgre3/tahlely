@@ -8,6 +8,9 @@ import { Dashboard } from './views/Dashboard.js';
 import { Projects } from './views/Projects.js';
 import { Workspace } from './views/Workspace.js';
 import { Reports } from './views/Reports.js';
+import { FileAnalyzer } from './views/FileAnalyzer.js';
+import { FileReview } from './views/FileReview.js';
+import { Duplicates } from './views/Duplicates.js';
 import { Conversations } from './views/Conversations.js';
 import { Agents } from './views/Agents.js';
 import { Approvals } from './views/Approvals.js';
@@ -19,6 +22,9 @@ const NAV: { to: string; label: string }[] = [
   { to: '/', label: 'Dashboard' },
   { to: '/projects', label: 'Projects' },
   { to: '/workspace', label: 'Workspace' },
+  { to: '/analyze', label: 'File Analyzer' },
+  { to: '/review', label: 'File Review' },
+  { to: '/duplicates', label: 'Duplicates' },
   { to: '/reports', label: 'Reports' },
   { to: '/conversations', label: 'Conversations' },
   { to: '/agents', label: 'Agents' },
@@ -112,6 +118,9 @@ function Shell() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/projects" element={<Projects />} />
           <Route path="/workspace" element={<Workspace />} />
+          <Route path="/analyze" element={<FileAnalyzer />} />
+          <Route path="/review" element={<FileReview />} />
+          <Route path="/duplicates" element={<Duplicates />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/conversations" element={<Conversations />} />
           <Route path="/agents" element={<Agents />} />

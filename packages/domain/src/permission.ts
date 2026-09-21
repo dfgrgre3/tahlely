@@ -52,6 +52,8 @@ export interface PermissionRequest extends Timestamps {
   reason?: string;
   status: PermissionRequestStatus;
   decidedAt?: string;
+  /** Optional user note attached to the approve/reject decision. */
+  decisionNote?: string;
 }
 
 export interface PolicyEvaluation {

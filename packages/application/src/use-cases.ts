@@ -226,7 +226,7 @@ export async function requestPermission(
 
 export async function decidePermission(
   ctx: ServiceContext,
-  input: { requestId: string; approve: boolean; actor?: string },
+  input: { requestId: string; approve: boolean; actor?: string; note?: string },
 ): Promise<PermissionRequest> {
   const request = await ctx.policies.getRequest(input.requestId);
   if (!request) {
@@ -246,6 +246,7 @@ export async function decidePermission(
     ...request,
     status: input.approve ? 'approved' : 'rejected',
     decidedAt: now,
+    decisionNote: input.note,
     updatedAt: now,
   };
   await ctx.policies.updateRequest(decided);
@@ -256,7 +257,7 @@ export async function decidePermission(
     action: input.approve ? 'permission.approved' : 'permission.rejected',
     actor: input.actor ?? 'user',
     target: request.target,
-    metadata: { requestId: request.id, permission: request.permission },
+    metadata: { requestId: request.id, permission: request.permission, note: input.note },
     at: now,
   });
   await ctx.events.emit(

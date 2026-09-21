@@ -130,6 +130,66 @@ fn fs_exists(path: String) -> Result<bool, String> {
     Ok(clean.exists())
 }
 
+/// Mutations are restricted to roots the user explicitly opened this session.
+fn ensure_mutable(state: &State<AppState>, path: &Path) -> Result<PathBuf, String> {
+    let canonical = canonicalize_lossy(path);
+    if !within_allowed_roots(state, &canonical) {
+        return Err("path is outside the registered project roots".to_string());
+    }
+    Ok(canonical)
+}
+
+#[tauri::command]
+fn fs_write_text(state: State<AppState>, path: String, content: String) -> Result<(), String> {
+    let clean = reject_dangerous(&path)?;
+    let canonical = ensure_mutable(&state, &clean)?;
+    if let Some(parent) = canonical.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("mkdir failed: {e}"))?;
+    }
+    fs::write(&canonical, content).map_err(|e| format!("write failed: {e}"))
+}
+
+#[tauri::command]
+fn fs_create_file(state: State<AppState>, path: String, content: String) -> Result<(), String> {
+    let clean = reject_dangerous(&path)?;
+    let canonical = ensure_mutable(&state, &clean)?;
+    if canonical.exists() {
+        return Err("file already exists".to_string());
+    }
+    if let Some(parent) = canonical.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("mkdir failed: {e}"))?;
+    }
+    fs::write(&canonical, content).map_err(|e| format!("create failed: {e}"))
+}
+
+#[tauri::command]
+fn fs_delete(state: State<AppState>, path: String) -> Result<(), String> {
+    let clean = reject_dangerous(&path)?;
+    let canonical = ensure_mutable(&state, &clean)?;
+    let meta = fs::metadata(&canonical).map_err(|e| format!("stat failed: {e}"))?;
+    if meta.is_dir() {
+        fs::remove_dir_all(&canonical).map_err(|e| format!("delete dir failed: {e}"))
+    } else {
+        fs::remove_file(&canonical).map_err(|e| format!("delete failed: {e}"))
+    }
+}
+
+#[tauri::command]
+fn fs_rename(state: State<AppState>, old_path: String, new_path: String) -> Result<(), String> {
+    let from = ensure_mutable(&state, &reject_dangerous(&old_path)?)?;
+    let to = ensure_mutable(&state, &reject_dangerous(&new_path)?)?;
+    if let Some(parent) = to.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("mkdir failed: {e}"))?;
+    }
+    fs::rename(&from, &to).map_err(|e| format!("rename failed: {e}"))
+}
+
+#[tauri::command]
+fn fs_move(state: State<AppState>, source: String, destination: String) -> Result<(), String> {
+    fs_rename(state, source, destination)
+}
+
+
 const SCAN_IGNORES: [&str; 12] = [
     "node_modules",
     ".git",
@@ -208,6 +268,11 @@ fn main() {
             fs_read_text,
             fs_stat,
             fs_exists,
+            fs_write_text,
+            fs_create_file,
+            fs_delete,
+            fs_rename,
+            fs_move,
             project_scan
         ])
         .setup(|app| {

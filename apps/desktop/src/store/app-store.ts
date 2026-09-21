@@ -13,7 +13,9 @@ import type {
 } from '@tahlely/domain';
 import {
   askAssistant,
+  buildAiProjectReport,
   buildProjectReport,
+  buildToolProjectReport,
   decideApproval,
   ensureConversation,
   loadDemoProject,
@@ -24,6 +26,12 @@ import {
   waitForTask,
 } from '../services/bootstrap.js';
 import type { Agent } from '@tahlely/domain';
+import type { SnippetAnalysisMode } from '../services/file-analyzer.js';
+import { analyzeSnippetFile } from '../services/file-analyzer.js';
+import type { UploadedFile } from '../services/folder-import.js';
+import { importUploadedFolder } from '../services/folder-import.js';
+import type { AgentFleetResult } from '../services/bootstrap.js';
+import { launchAgentFleet } from '../services/bootstrap.js';
 
 /**
  * UI-only state container. All business logic lives in services/use cases;
@@ -51,14 +59,25 @@ interface AppState {
   selectProject: (id: ProjectId) => Promise<void>;
   openDemo: () => Promise<void>;
   openFolder: (rootPath: string, name: string) => Promise<void>;
+  importFolder: (name: string, files: UploadedFile[]) => Promise<void>;
   removeProject: (id: ProjectId) => Promise<void>;
   runAnalysis: (profileId: string, mode: AnalysisMode) => Promise<void>;
   generateReport: (analysisId: string, title: string) => Promise<void>;
+  generateAiReport: (analysisId?: string, model?: string) => Promise<void>;
+  generateToolReport: (analysisId?: string) => Promise<void>;
+  analyzeSnippet: (input: {
+    content: string;
+    fileName?: string;
+    source: 'paste' | 'upload' | 'url';
+    mode: SnippetAnalysisMode;
+  }) => Promise<void>;
   selectConversation: (id: string) => Promise<void>;
   newConversation: () => Promise<void>;
   sendMessage: (text: string) => Promise<void>;
-  decide: (requestId: string, approve: boolean) => Promise<void>;
+  decide: (requestId: string, approve: boolean, note?: string) => Promise<void>;
   refreshTasks: () => void;
+  fleetResults: AgentFleetResult[];
+  launchFleet: (model?: string) => Promise<void>;
   clearError: () => void;
 }
 
@@ -163,6 +182,23 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }
   },
 
+  importFolder: async (name, files) => {
+    set({ busy: true, error: undefined });
+    try {
+      const project = await importUploadedFolder(name, files);
+      // Auto full analysis right after import (per product flow).
+      const task = await runProjectAnalysis(project.id, 'standard', 'tool-only', () => {
+        set({ tasks: services.tasks.list(project.id) });
+      });
+      await waitForTask(task.id);
+      const projects = await services.projects.listProjects();
+      set({ projects, activeProjectId: project.id, ...(await snapshotProject(project.id)) });
+      set({ busy: false, tasks: services.tasks.list(project.id) });
+    } catch (error) {
+      set({ busy: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  },
+
   removeProject: async (id) => {
     await services.projects.removeProject(id);
     const projects = await services.projects.listProjects();
@@ -213,6 +249,59 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }
   },
 
+  generateToolReport: async (analysisId) => {
+    const { activeProjectId, activeConversationId } = get();
+    if (!activeProjectId) return;
+    set({ busy: true, error: undefined });
+    try {
+      await buildToolProjectReport(activeProjectId, {
+        analysisId,
+        conversationId: activeConversationId,
+      });
+      const reports = await services.reports.listReports(activeProjectId);
+      set({ reports, busy: false });
+    } catch (error) {
+      set({ busy: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  },
+
+  generateAiReport: async (analysisId, model) => {
+    const { activeProjectId, activeConversationId } = get();
+    if (!activeProjectId) return;
+    set({ busy: true, error: undefined });
+    try {
+      await buildAiProjectReport(activeProjectId, {
+        analysisId,
+        model,
+        conversationId: activeConversationId,
+      });
+      const reports = await services.reports.listReports(activeProjectId);
+      set({ reports, busy: false });
+    } catch (error) {
+      set({ busy: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  },
+
+  analyzeSnippet: async (input) => {
+    const { activeProjectId, activeConversationId } = get();
+    if (!activeProjectId) return;
+    set({ busy: true, error: undefined });
+    try {
+      const { conversationId } = await analyzeSnippetFile({
+        projectId: activeProjectId,
+        conversationId: activeConversationId,
+        ...input,
+      });
+      const [reports, conversations] = await Promise.all([
+        services.reports.listReports(activeProjectId),
+        services.conversations.listConversations(activeProjectId),
+      ]);
+      set({ reports, conversations, activeConversationId: conversationId, busy: false });
+    } catch (error) {
+      set({ busy: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  },
+
   selectConversation: async (id) => {
     set({ activeConversationId: id });
     const messages = await services.conversations.listMessages(id);
@@ -254,11 +343,11 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }
   },
 
-  decide: async (requestId, approve) => {
+  decide: async (requestId, approve, note) => {
     const { activeProjectId } = get();
     set({ error: undefined });
     try {
-      await decideApproval(requestId, approve);
+      await decideApproval(requestId, approve, note);
       const approvals = activeProjectId
         ? await services.policies.listPendingRequests(activeProjectId)
         : [];
@@ -274,4 +363,20 @@ export const useAppStore = create<AppState>()((set, get) => ({
   },
 
   clearError: () => set({ error: undefined }),
+
+  fleetResults: [],
+
+  launchFleet: async (model) => {
+    const { activeProjectId, activeConversationId } = get();
+    if (!activeProjectId) return;
+    set({ fleetResults: [], error: undefined });
+    const final = await launchAgentFleet(activeProjectId, {
+      model,
+      conversationId: activeConversationId,
+      onAgentDone: (result) => {
+        set({ fleetResults: [...get().fleetResults, result] });
+      },
+    });
+    set({ fleetResults: final });
+  },
 }));
